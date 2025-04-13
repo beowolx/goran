@@ -5,8 +5,12 @@
 #![allow(clippy::cast_precision_loss)]
 #![allow(clippy::struct_excessive_bools)]
 
+use anyhow::Result;
 use clap::Parser;
+use reqwest::Client;
 use std::env;
+
+mod geo;
 
 #[derive(Parser, Debug, Clone)]
 #[command(
@@ -49,8 +53,12 @@ struct Cli {
   no_ssl: bool,
 }
 
-fn main() {
+#[tokio::main]
+async fn main() -> Result<()> {
   let cli = Cli::parse();
+  let http_client = Client::builder()
+    .user_agent(format!("miru_cli/{}", env!("CARGO_PKG_VERSION")))
+    .build()?;
 
   let final_vt_api_key = if cli.vt {
     cli
@@ -59,6 +67,33 @@ fn main() {
   } else {
     None
   };
+  let mut geo_result: Option<geo::Info> = None;
+  println!("Fetching Geolocation info...");
+  match geo::fetch_geo_info(&cli.target, &http_client).await {
+    Ok(info) => {
+      if !cli.json {
+        println!("\n[+] Geolocation:");
+        println!("    IP: {}", info.query);
+        println!("    Country: {}", info.country.as_deref().unwrap_or("N/A"));
+        println!("    City: {}", info.city.as_deref().unwrap_or("N/A"));
+        println!(
+          "    Region: {}",
+          info.region_name.as_deref().unwrap_or("N/A")
+        );
+        println!("    ISP: {}", info.isp.as_deref().unwrap_or("N/A"));
+      }
+      geo_result = Some(info);
+    }
+    Err(e) => {
+      eprintln!("\n[!] Geolocation lookup failed: {e}");
+    }
+  }
+  if cli.json {
+    println!("\nJSON output mode enabled (actual JSON generation will be implemented later).");
+    if let Some(ref geo) = geo_result {
+      println!("Collected Geo Info (raw): {geo:?}");
+    }
+  }
 
   println!("Parsed arguments:");
   println!("  Target: {}", cli.target);
@@ -72,6 +107,7 @@ fn main() {
   println!("  Skip WHOIS: {}", cli.no_whois);
   println!("  Skip DNS: {}", cli.no_dns);
   println!("  Skip SSL: {}", cli.no_ssl);
+  Ok(())
 }
 
 #[cfg(test)]
