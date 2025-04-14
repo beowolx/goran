@@ -3,9 +3,13 @@
 use anyhow::{bail, Context, Result};
 use reqwest::Client;
 use serde::Deserialize;
+use serde::Serialize;
 
 /// Geolocation data from ip-api.com
-#[derive(Deserialize, Debug, Clone)]
+///
+/// Fields are based on the `ip-api.com` JSON response structure.
+/// Some fields are optional as they might not always be provided by the API.
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Info {
   /// Request status ("success" or "fail")
