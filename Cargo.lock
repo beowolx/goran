@@ -1057,6 +1057,8 @@ dependencies = [
  "anyhow",
  "clap",
  "hickory-resolver",
+ "once_cell",
+ "regex",
  "reqwest",
  "rustls",
  "rustls-native-certs",
