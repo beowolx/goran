@@ -9,9 +9,11 @@ use anyhow::Result;
 use clap::Parser;
 use reqwest::Client;
 use std::env;
+use std::net::IpAddr;
+use std::str::FromStr;
 
 mod geo;
-
+mod whois;
 #[derive(Parser, Debug, Clone)]
 #[command(
   name = "miru",
@@ -60,6 +62,20 @@ async fn main() -> Result<()> {
     .user_agent(format!("miru_cli/{}", env!("CARGO_PKG_VERSION")))
     .build()?;
 
+  let whois_available = match whois::check_whois_command() {
+    Ok(available) => {
+      if !available {
+        eprintln!("[!] Warning: 'whois' command not found or not executable. Skipping WHOIS lookup.");
+      }
+      available
+    }
+    Err(e) => {
+      eprintln!("[!] Warning: Failed to check for 'whois' command ({e}). Skipping WHOIS lookup.");
+      false
+    }
+  };
+  let is_ip_address = IpAddr::from_str(&cli.target).is_ok();
+
   let final_vt_api_key = if cli.vt {
     cli
       .vt_api_key_flag
@@ -93,6 +109,24 @@ async fn main() -> Result<()> {
     if let Some(ref geo) = geo_result {
       println!("Collected Geo Info (raw): {geo:?}");
     }
+  }
+  if !cli.no_whois && !cli.json && !is_ip_address && whois_available {
+    println!("Fetching WHOIS info...");
+    match whois::fetch_whois_info(&cli.target) {
+      Ok(whois_output) => {
+        println!("\n[+] WHOIS Information:");
+        println!("{whois_output}");
+      }
+      Err(e) => {
+        eprintln!("\n[!] WHOIS lookup failed: {e}");
+      }
+    }
+  } else if !cli.no_whois && cli.json {
+    eprintln!("[!] Note: WHOIS lookup skipped in JSON mode (parsing not yet implemented).");
+  } else if !cli.no_whois && is_ip_address {
+    eprintln!("[!] Note: WHOIS lookup via 'whois' command is generally for domains, skipped for IP target.");
+  } else if !cli.no_whois && !whois_available {
+    eprintln!("[!] Warning: 'whois' command not found or not executable. Skipping WHOIS lookup.");
   }
 
   println!("Parsed arguments:");
