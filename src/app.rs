@@ -1,7 +1,7 @@
 use crate::cli::Cli;
+use crate::providers::whois;
 use crate::results::{self, Analysis};
 use crate::steps;
-use crate::whois;
 use anyhow::Result;
 use clap::Parser;
 use reqwest::Client;

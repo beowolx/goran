@@ -1,4 +1,7 @@
-use crate::{cli::Cli, geo, whois};
+use crate::{
+  cli::Cli,
+  providers::{geo, whois},
+};
 use anyhow::Result;
 use reqwest::Client;
 use std::net::IpAddr;
