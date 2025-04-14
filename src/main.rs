@@ -6,17 +6,9 @@
 #![allow(clippy::struct_excessive_bools)]
 
 use anyhow::Result;
-
-mod app;
-mod cli;
-mod geo;
-mod results;
-mod steps;
-mod whois;
+use miru::run;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-  let mut app = app::App::new()?;
-
-  app.run().await
+  run().await
 }

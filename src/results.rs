@@ -1,4 +1,4 @@
-use crate::{geo, whois};
+use crate::providers::{geo, whois};
 use anyhow::{Context, Result};
 use serde::Serialize;
 
