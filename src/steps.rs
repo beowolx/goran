@@ -16,7 +16,7 @@ pub async fn fetch_geo_step(
     .map_err(|e| format!("Geolocation lookup failed: {e}"))
 }
 
-/// Attempt an RDAP lookup, progressively stripping left‑most labels until
+/// Attempt an RDAP lookup, progressively stripping left-most labels until
 /// either a response is obtained or we run out of labels (max 10 hops).
 async fn rdap_recursive_lookup(target: &str) -> Option<whois::Info> {
   let mut candidate = target.trim_end_matches('.').to_lowercase();
