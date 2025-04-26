@@ -16,7 +16,31 @@ pub async fn fetch_geo_step(
     .map_err(|e| format!("Geolocation lookup failed: {e}"))
 }
 
-/// Fetches WHOIS information if applicable.
+/// Attempt an RDAP lookup, progressively stripping left‑most labels until
+/// either a response is obtained or we run out of labels (max 10 hops).
+async fn rdap_recursive_lookup(target: &str) -> Option<whois::Info> {
+  let mut candidate = target.trim_end_matches('.').to_lowercase();
+  let mut hops = 0;
+
+  loop {
+    if hops > 10 {
+      break;
+    }
+    if let Ok(info) = rdap::fetch_rdap_info(&candidate).await {
+      return Some(info);
+    }
+
+    if let Some(idx) = candidate.find('.') {
+      candidate = candidate[idx + 1..].to_string();
+      hops += 1;
+      continue;
+    }
+    break;
+  }
+  None
+}
+
+/// Fetches WHOIS (or RDAP) information if applicable.
 pub async fn fetch_whois_step(
   target: &str,
   cli: &Cli,
@@ -27,10 +51,13 @@ pub async fn fetch_whois_step(
 
   match whois::fetch_whois_info(target).await {
     Ok(info) => Ok(Some(info)),
-    Err(err) => match rdap::fetch_rdap_info(target).await {
-      Ok(rinfo) => Ok(Some(rinfo)),
-      Err(_rdap_err) => Err(format!("WHOIS lookup failed: {err}")),
-    },
+    Err(err) => {
+      // fallback: try RDAP on the original target, then with label‑stripping
+      (rdap_recursive_lookup(target).await).map_or_else(
+        || Err(format!("WHOIS/RDAP lookup failed: {err}")),
+        |info| Ok(Some(info)),
+      )
+    }
   }
 }
 

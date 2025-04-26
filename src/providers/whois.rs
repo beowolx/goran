@@ -1,91 +1,113 @@
-//! Fetches and parses WHOIS information for domain names.
-//!
-//! This module provides functionality to execute the system's `whois` command
-//! and parse its output into a structured `Info` object. It handles variations
-//! in WHOIS output formats on a best-effort basis using regular expressions.
-
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
-use std::process::{Command, Stdio};
-use whois_rust::{WhoIs, WhoIsLookupOptions};
+use std::collections::{HashMap, HashSet, VecDeque};
+use whois_rust::{WhoIs, WhoIsLookupOptions, WhoIsServerValue};
 
 static DEFAULT_SERVERS_JSON: &str = include_str!("servers.json");
 
-// --- Regex for parsing WHOIS output ---
-// These regexes attempt to capture common fields found in WHOIS records.
-// Due to the lack of a standardized format, they are best-effort matches.
-
 static RE_DOMAIN_NAME: Lazy<Regex> =
-  Lazy::new(|| Regex::new(r"^(?:Domain Name|domain):\s*(.*)").unwrap());
+  Lazy::new(|| Regex::new(r"^(?:Domain Name|domain):\s*(.+)$").unwrap());
 static RE_REGISTRAR: Lazy<Regex> = Lazy::new(|| {
-  Regex::new(r"^(?:Registrar|registrar|Sponsoring Registrar):\s*(.*)").unwrap()
+  Regex::new(r"^(?:Registrar|Sponsoring Registrar):\s*(.+)$").unwrap()
 });
 static RE_CREATION_DATE: Lazy<Regex> = Lazy::new(|| {
-  Regex::new(r"^(?:Creation Date|Registered on|created):\s*(.*)").unwrap()
+  Regex::new(r"^(?:Creation Date|Registered on|created):\s*(.+)$").unwrap()
 });
 static RE_UPDATED_DATE: Lazy<Regex> = Lazy::new(|| {
-  Regex::new(r"^(?:Updated Date|Changed|last-updated):\s*(.*)").unwrap()
+  Regex::new(r"^(?:Updated Date|Changed|last-updated):\s*(.+)$").unwrap()
 });
 static RE_EXPIRY_DATE: Lazy<Regex> = Lazy::new(|| {
   Regex::new(
-    r"^(?:Registry Expiry Date|Expiry Date|Expires On|paid-till):\s*(.*)",
+    r"^(?:Registry Expiry Date|Expiry Date|Expires On|paid-till):\s*(.+)$",
   )
   .unwrap()
 });
 static RE_NAME_SERVER: Lazy<Regex> = Lazy::new(|| {
-  Regex::new(r"^(?:Name Server|nserver|Name Servers):\s*(.*)").unwrap()
+  Regex::new(r"^(?:Name Server|nserver|Name Servers):\s*(.+)$").unwrap()
 });
 static RE_DOMAIN_STATUS: Lazy<Regex> =
-  Lazy::new(|| Regex::new(r"^(?:Domain Status|status):\s*(.*)").unwrap());
-static RE_REGISTRANT_ORG: Lazy<Regex> = Lazy::new(|| {
-  Regex::new(r"^(?:Registrant Organization|org):\s*(.*)").unwrap()
-});
-static RE_REGISTRANT_COUNTRY: Lazy<Regex> =
-  Lazy::new(|| Regex::new(r"^(?:Registrant Country|country):\s*(.*)").unwrap());
+  Lazy::new(|| Regex::new(r"^(?:Domain Status|status):\s*(.+)$").unwrap());
 
-// Regex to identify lines indicating redacted information.
+static RE_REGISTRANT_ORG: Lazy<Regex> = Lazy::new(|| {
+  Regex::new(r"^(?:Registrant (?:Organization|Name)|org):\s*(.+)$").unwrap()
+});
+static RE_REGISTRANT_COUNTRY: Lazy<Regex> = Lazy::new(|| {
+  Regex::new(r"^(?:Registrant Country|country):\s*(.+)$").unwrap()
+});
+
+/// AFNIC contact-block helpers
+static RE_HOLDER_C: Lazy<Regex> =
+  Lazy::new(|| Regex::new(r"^(?:holder-c|registrant-c):\s*(.+)$").unwrap());
+static RE_NICHDL: Lazy<Regex> =
+  Lazy::new(|| Regex::new(r"^nic-hdl:\s*(.+)$").unwrap());
+static RE_CB_CONTACT: Lazy<Regex> =
+  Lazy::new(|| Regex::new(r"^\s*contact:\s*(.+)$").unwrap());
+static RE_CB_COUNTRY: Lazy<Regex> =
+  Lazy::new(|| Regex::new(r"^\s*country:\s*(.+)$").unwrap());
+
 static RE_REDACTED: Lazy<Regex> =
   Lazy::new(|| Regex::new(r"(?i)REDACTED FOR PRIVACY").unwrap());
-// Regex to identify common comment or non-data lines to ignore.
 static RE_IGNORE_PREFIXES: Lazy<Regex> =
   Lazy::new(|| Regex::new(r"^(?:%|>>>|NOTE:|Registrar URL:)").unwrap());
 
-/// Parsed WHOIS information for a domain.
-///
-/// Fields are optional as they may not be present or parseable in the raw output.
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+/// referral header
+static RE_REFERRAL: Lazy<Regex> = Lazy::new(|| {
+  Regex::new(
+        r"(?:ReferralServer|Registrar WHOIS Server|Whois Server):[^\S\n]*(?:r?whois://)?([^\s\r\n]+)",
+    )
+    .unwrap()
+});
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Info {
-  /// The registered domain name, usually normalized to lowercase.
   pub domain_name: Option<String>,
-  /// The sponsoring registrar.
   pub registrar: Option<String>,
-  /// The date the domain was registered. Format varies.
   pub creation_date: Option<String>,
-  /// The date the domain record was last updated. Format varies.
   pub updated_date: Option<String>,
-  /// The date the domain registration expires. Format varies.
   pub expiry_date: Option<String>,
-  /// A list of name servers associated with the domain, normalized to lowercase.
   #[serde(default)]
   pub name_servers: Vec<String>,
-  /// A list of statuses reported for the domain (e.g., "clientTransferProhibited").
   #[serde(default)]
   pub domain_status: Vec<String>,
-  /// The organization associated with the registrant. May be redacted.
   pub registrant_organization: Option<String>,
-  /// The country associated with the registrant. May be redacted.
   pub registrant_country: Option<String>,
 }
 
 impl Info {
-  /// Checks if any significant fields have been successfully parsed.
-  ///
-  /// This is used to determine if the WHOIS output likely contained useful
-  /// domain information, rather than just boilerplate or an error message.
-  fn is_meaningfully_parsed(&self) -> bool {
+  pub fn merge_missing(&mut self, other: Self) {
+    if self.domain_name.is_none() {
+      self.domain_name = other.domain_name;
+    }
+    if self.registrar.is_none() {
+      self.registrar = other.registrar;
+    }
+    if self.creation_date.is_none() {
+      self.creation_date = other.creation_date;
+    }
+    if self.updated_date.is_none() {
+      self.updated_date = other.updated_date;
+    }
+    if self.expiry_date.is_none() {
+      self.expiry_date = other.expiry_date;
+    }
+    if self.name_servers.is_empty() {
+      self.name_servers = other.name_servers;
+    }
+    if self.domain_status.is_empty() {
+      self.domain_status = other.domain_status;
+    }
+    if self.registrant_organization.is_none() {
+      self.registrant_organization = other.registrant_organization;
+    }
+    if self.registrant_country.is_none() {
+      self.registrant_country = other.registrant_country;
+    }
+  }
+
+  #[must_use]
+  pub fn ok(&self) -> bool {
     self.domain_name.is_some()
       || self.registrar.is_some()
       || self.creation_date.is_some()
@@ -96,176 +118,227 @@ impl Info {
   }
 }
 
-/// Parses a single line of WHOIS output and updates the `Info` struct.
-///
-/// Uses the pre-compiled regexes to extract relevant data. Collects potentially
-/// multi-valued fields (name servers, domain status) into temporary hash sets
-/// to handle duplicates before final assignment.
-fn parse_line(
-  line: &str,
-  info: &mut Info,
-  name_servers: &mut HashSet<String>,
-  domain_status: &mut HashSet<String>,
-) {
-  if let Some(caps) = RE_DOMAIN_NAME.captures(line) {
-    if info.domain_name.is_none() {
-      info.domain_name = caps.get(1).map(|m| m.as_str().trim().to_lowercase());
+/// Internal parsing state.
+#[derive(Default)]
+struct ParseCtx {
+  info: Info,
+  ns: HashSet<String>,
+  status: HashSet<String>,
+  contacts: HashMap<String, (Option<String>, Option<String>)>,
+  current_hdl: Option<String>,
+  holder_hdl: Option<String>,
+}
+
+impl ParseCtx {
+  fn process_line(&mut self, line: &str) {
+    let trimmed = line.trim();
+
+    if trimmed.is_empty()
+      || RE_IGNORE_PREFIXES.is_match(trimmed)
+      || RE_REDACTED.is_match(trimmed)
+    {
+      return;
     }
-  } else if let Some(caps) = RE_REGISTRAR.captures(line) {
-    if info.registrar.is_none() {
-      info.registrar = caps.get(1).map(|m| m.as_str().trim().to_string());
+
+    if self.handle_afnic_contact_block(trimmed) {
+      return;
     }
-  } else if let Some(caps) = RE_CREATION_DATE.captures(line) {
-    if info.creation_date.is_none() {
-      info.creation_date = caps.get(1).map(|m| m.as_str().trim().to_string());
+
+    if self.maybe_set(&RE_DOMAIN_NAME, trimmed, |ctx, v| {
+      ctx.info.domain_name = Some(v.to_lowercase());
+    }) || self.maybe_set(&RE_REGISTRAR, trimmed, |ctx, v| {
+      ctx.info.registrar = Some(v);
+    }) || self.maybe_set(&RE_CREATION_DATE, trimmed, |ctx, v| {
+      ctx.info.creation_date = Some(v);
+    }) || self.maybe_set(&RE_UPDATED_DATE, trimmed, |ctx, v| {
+      ctx.info.updated_date = Some(v);
+    }) || self.maybe_set(&RE_EXPIRY_DATE, trimmed, |ctx, v| {
+      ctx.info.expiry_date = Some(v);
+    }) {
+      return;
     }
-  } else if let Some(caps) = RE_UPDATED_DATE.captures(line) {
-    if info.updated_date.is_none() {
-      info.updated_date = caps.get(1).map(|m| m.as_str().trim().to_string());
-    }
-  } else if let Some(caps) = RE_EXPIRY_DATE.captures(line) {
-    if info.expiry_date.is_none() {
-      info.expiry_date = caps.get(1).map(|m| m.as_str().trim().to_string());
-    }
-  } else if let Some(caps) = RE_NAME_SERVER.captures(line) {
-    if let Some(matched_value) = caps.get(1) {
-      // Handle multiple name servers potentially listed on the same line.
-      matched_value.as_str().split_whitespace().for_each(|ns| {
-        if !ns.is_empty() {
-          name_servers.insert(ns.to_lowercase());
+
+    if let Some(c) = RE_NAME_SERVER.captures(trimmed) {
+      c[1].split_whitespace().for_each(|s| {
+        if !s.is_empty() {
+          self.ns.insert(s.to_lowercase());
         }
       });
+      return;
     }
-  } else if let Some(caps) = RE_DOMAIN_STATUS.captures(line) {
-    if let Some(matched_value) = caps.get(1) {
-      // Often includes a URL after the status, which we trim off.
-      let status_part = matched_value
-        .as_str()
-        .split(" https://")
-        .next()
-        .unwrap_or_else(|| matched_value.as_str())
-        .trim();
-      if !status_part.is_empty() {
-        domain_status.insert(status_part.to_string());
+
+    if let Some(c) = RE_DOMAIN_STATUS.captures(trimmed) {
+      let s = c[1]
+        .split_once(" https://")
+        .map_or(&c[1], |(s, _)| s)
+        .trim()
+        .to_string();
+      if !s.is_empty() {
+        self.status.insert(s);
       }
+      return;
     }
-  } else if let Some(caps) = RE_REGISTRANT_ORG.captures(line) {
-    if info.registrant_organization.is_none() {
-      if let Some(val) = caps.get(1).map(|m| m.as_str().trim()) {
-        // Avoid storing explicitly redacted values.
-        if !RE_REDACTED.is_match(val) {
-          info.registrant_organization = Some(val.to_string());
-        }
-      }
-    }
-  } else if let Some(caps) = RE_REGISTRANT_COUNTRY.captures(line) {
-    if info.registrant_country.is_none() {
-      if let Some(val) = caps.get(1).map(|m| m.as_str().trim()) {
-        // Avoid storing explicitly redacted values.
-        if !RE_REDACTED.is_match(val) {
-          info.registrant_country = Some(val.to_string());
-        }
-      }
-    }
+
+    let _ = self.maybe_set(&RE_REGISTRANT_ORG, trimmed, |ctx, v| {
+      ctx.info.registrant_organization = Some(v);
+    });
+    let _ = self.maybe_set(&RE_REGISTRANT_COUNTRY, trimmed, |ctx, v| {
+      ctx.info.registrant_country = Some(v);
+    });
   }
-  // Lines not matching any regex are implicitly ignored.
+
+  fn maybe_set<F>(&mut self, re: &Regex, line: &str, mut f: F) -> bool
+  where
+    F: FnMut(&mut Self, String),
+  {
+    re.captures(line).map_or(false, |caps| {
+      f(self, caps[1].trim().to_string());
+      true
+    })
+  }
+
+  fn handle_afnic_contact_block(&mut self, trimmed: &str) -> bool {
+    if let Some(caps) = RE_NICHDL.captures(trimmed) {
+      self.current_hdl = Some(caps[1].to_string());
+      self
+        .contacts
+        .entry(caps[1].to_string())
+        .or_insert((None, None));
+      return true;
+    }
+
+    if let Some(hdl) = &self.current_hdl {
+      if trimmed.is_empty() {
+        self.current_hdl = None;
+        return true;
+      }
+
+      if let Some(c) = RE_CB_CONTACT.captures(trimmed) {
+        self.contacts.entry(hdl.clone()).and_modify(|v| {
+          v.0.get_or_insert(c[1].trim().to_string());
+        });
+        return true;
+      }
+
+      if let Some(c) = RE_CB_COUNTRY.captures(trimmed) {
+        self.contacts.entry(hdl.clone()).and_modify(|v| {
+          v.1.get_or_insert(c[1].trim().to_string());
+        });
+        return true;
+      }
+    }
+
+    if self.holder_hdl.is_none() {
+      if let Some(c) = RE_HOLDER_C.captures(trimmed) {
+        self.holder_hdl = Some(c[1].to_string());
+        return true;
+      }
+    }
+
+    false
+  }
+
+  fn finalize(mut self) -> Info {
+    if let Some(hdl) = self.holder_hdl {
+      if let Some((org, ctry)) = self.contacts.remove(&hdl) {
+        if self.info.registrant_organization.is_none() {
+          self.info.registrant_organization = org;
+        }
+        if self.info.registrant_country.is_none() {
+          self.info.registrant_country = ctry;
+        }
+      }
+    }
+
+    self.info.name_servers = self.ns.into_iter().collect();
+    self.info.name_servers.sort_unstable();
+
+    self.info.domain_status = self.status.into_iter().collect();
+    self.info.domain_status.sort_unstable();
+
+    self.info
+  }
 }
 
-/// Parses the raw multiline output from the 'whois' command.
-///
-/// Iterates through each line, skipping empty lines, comments, and redacted lines.
-/// Uses the `parse_line` helper function for individual line processing.
-/// Collects and sorts multi-value fields (name servers, status) at the end.
-fn parse_whois_output(raw_output: &str) -> Info {
-  let mut info = Info::default();
-  let mut name_servers = HashSet::new();
-  let mut domain_status = HashSet::new();
+fn parse_whois(raw: &str) -> Info {
+  let mut ctx = ParseCtx::default();
+  raw.lines().for_each(|line| ctx.process_line(line));
+  ctx.finalize()
+}
 
-  for line in raw_output.lines() {
-    let line = line.trim();
-    // Skip lines that are empty, marked as comments/notes, or clearly redacted.
-    if line.is_empty()
-      || RE_IGNORE_PREFIXES.is_match(line)
-      || RE_REDACTED.is_match(line)
-    {
+/// Extract referral hosts from a WHOIS response.
+fn referrals(raw: &str) -> Vec<String> {
+  RE_REFERRAL
+    .captures_iter(raw)
+    .map(|caps| caps[1].trim_matches([' ', '\r', '\n'].as_ref()).to_string())
+    .collect()
+}
+
+async fn fetch_single(whois: &WhoIs, domain: &str) -> Result<Info> {
+  let mut opts = WhoIsLookupOptions::from_string(domain)?;
+  opts.follow = 1;
+
+  let raw = whois.lookup_async(opts.clone()).await?;
+  let mut info = parse_whois(&raw);
+
+  let mut q: VecDeque<String> = referrals(&raw).into();
+  let mut visited = HashSet::new();
+
+  while (info.registrant_organization.is_none()
+    || info.registrant_country.is_none())
+    && !q.is_empty()
+    && visited.len() < 5
+  {
+    let h = q.pop_front().unwrap();
+    if !visited.insert(h.clone()) {
       continue;
     }
-
-    parse_line(line, &mut info, &mut name_servers, &mut domain_status);
-  }
-
-  info.name_servers = name_servers.into_iter().collect();
-  info.name_servers.sort_unstable();
-  info.domain_status = domain_status.into_iter().collect();
-  info.domain_status.sort_unstable();
-
-  info
-}
-
-/// Checks if the 'whois' command is available and executable in the system's PATH.
-///
-/// Attempts to run `whois --version`. Note that not all `whois` implementations
-/// support the `--version` flag, but it's a common convention. Success is based
-/// on the exit status.
-///
-/// # Errors
-///
-/// Returns an error if the command cannot be found (`ErrorKind::NotFound`) or
-/// if there's another issue executing the command (e.g., permissions).
-/// The error message provides guidance on installing `whois` if it's not found.
-pub fn check_whois_command() -> Result<bool> {
-  Command::new("whois")
-    .arg("--version")
-    .stdout(Stdio::null())
-    .stderr(Stdio::null())
-    .status()
-    .map(|status| status.success())
-    .map_err(|e| {
-      if e.kind() == std::io::ErrorKind::NotFound {
-        anyhow::anyhow!("'whois' command not found in PATH. Please install it.")
-      } else {
-        anyhow::Error::new(e).context("Failed to execute 'whois --version'")
+    if let Ok(server) = WhoIsServerValue::from_string(&h) {
+      let mut o = opts.clone();
+      o.server = Some(server);
+      o.follow = 0;
+      if let Ok(r) = whois.lookup_async(o).await {
+        let extra = parse_whois(&r);
+        info.merge_missing(extra);
+        for n in referrals(&r) {
+          if !visited.contains(&n) {
+            q.push_back(n);
+          }
+        }
       }
-    })
+    }
+  }
+
+  if !info.ok() {
+    bail!("WHOIS response contained no useful fields");
+  }
+  Ok(info)
 }
 
-/// Executes the 'whois' command for a given target (domain or IP) and parses the output.
-///
-/// # Arguments
-///
-/// * `target` - The domain name or IP address to query.
-///
-/// # Returns
-///
-/// A `Result` containing the parsed `Info` structure on success.
+/// Fetch WHOIS (possibly following referrals) for a domain.
 ///
 /// # Errors
 ///
-/// Returns an error if:
-/// - The `whois` command fails to execute.
-/// - The `whois` command exits with a non-zero status code.
-/// - The command produces empty output (both stdout and stderr).
-/// - The output could not be parsed into a meaningful `Info` structure
-///   (checked using `is_meaningfully_parsed`). The error message will indicate
-///   a potential format issue.
-/// - The output contains non-UTF8 characters (though `from_utf8_lossy` mitigates this).
+/// Returns an error if parsing WHOIS servers fails, lookup fails,
+/// or if the response contains no relevant information.
 pub async fn fetch_whois_info(target: &str) -> Result<Info> {
-  let whois = WhoIs::from_string(DEFAULT_SERVERS_JSON)
-    .context("loading embedded servers.json")?;
+  let whois = WhoIs::from_string(DEFAULT_SERVERS_JSON)?;
 
-  let mut opts = WhoIsLookupOptions::from_string(target)
-    .context("invalid WHOIS lookup target")?;
-  opts.follow = 5;
+  let mut candidate = target.trim_end_matches('.').to_lowercase();
+  let mut attempts = 0;
 
-  let raw_response = whois
-    .lookup_async(opts)
-    .await
-    .context("WHOIS query failed")?;
-
-  let parsed_info = parse_whois_output(&raw_response);
-
-  if !parsed_info.is_meaningfully_parsed() {
-    bail!("WHOIS response parsed no useful fields for '{target}'");
+  loop {
+    match fetch_single(&whois, &candidate).await {
+      Ok(i) => return Ok(i),
+      Err(e) if attempts < 10 => {
+        if let Some(idx) = candidate.find('.') {
+          candidate = candidate[idx + 1..].to_string();
+          attempts += 1;
+          continue;
+        }
+        return Err(e);
+      }
+      Err(e) => return Err(e),
+    }
   }
-  Ok(parsed_info)
 }
