@@ -20,7 +20,6 @@ pub async fn fetch_geo_step(
 pub async fn fetch_whois_step(
   target: &str,
   cli: &Cli,
-  client: &Client,
 ) -> Result<Option<whois::Info>, String> {
   if cli.no_whois || std::net::IpAddr::from_str(target).is_ok() {
     return Ok(None);
@@ -28,7 +27,7 @@ pub async fn fetch_whois_step(
 
   match whois::fetch_whois_info(target).await {
     Ok(info) => Ok(Some(info)),
-    Err(err) => match rdap::fetch_rdap_info(target, client).await {
+    Err(err) => match rdap::fetch_rdap_info(target).await {
       Ok(rinfo) => Ok(Some(rinfo)),
       Err(_rdap_err) => Err(format!("WHOIS lookup failed: {err}")),
     },
