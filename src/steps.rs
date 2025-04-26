@@ -1,10 +1,9 @@
 use crate::{
   cli::Cli,
-  providers::{geo, whois},
+  providers::{geo, rdap, whois},
 };
 use anyhow::Result;
 use reqwest::Client;
-use std::net::IpAddr;
 use std::str::FromStr;
 
 /// Fetches Geolocation information.
@@ -18,27 +17,21 @@ pub async fn fetch_geo_step(
 }
 
 /// Fetches WHOIS information if applicable.
-pub fn fetch_whois_step(
+pub async fn fetch_whois_step(
   target: &str,
   cli: &Cli,
-  whois_available: bool,
+  client: &Client,
 ) -> Result<Option<whois::Info>, String> {
-  let is_ip_address = IpAddr::from_str(target).is_ok();
-
-  // Early returns for skipped conditions
-  if cli.no_whois {
-    return Ok(None);
-  }
-  if is_ip_address {
-    return Ok(None);
-  }
-  if !whois_available {
+  if cli.no_whois || std::net::IpAddr::from_str(target).is_ok() {
     return Ok(None);
   }
 
-  match whois::fetch_whois_info(target) {
+  match whois::fetch_whois_info(target).await {
     Ok(info) => Ok(Some(info)),
-    Err(e) => Err(format!("WHOIS lookup failed: {e}")),
+    Err(err) => match rdap::fetch_rdap_info(target, client).await {
+      Ok(rinfo) => Ok(Some(rinfo)),
+      Err(_rdap_err) => Err(format!("WHOIS lookup failed: {err}")),
+    },
   }
 }
 

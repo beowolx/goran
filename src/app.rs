@@ -1,5 +1,4 @@
 use crate::cli::Cli;
-use crate::providers::whois;
 use crate::results::{self, Analysis};
 use crate::steps;
 use anyhow::Result;
@@ -13,7 +12,6 @@ pub struct App {
   cli: Cli,
   client: Client,
   results: Analysis,
-  whois_available: bool,
   vt_api_key: Option<String>,
 }
 
@@ -24,26 +22,16 @@ impl App {
       .user_agent(format!("miru_cli/{}", env!("CARGO_PKG_VERSION")))
       .build()?;
 
-    let mut initial_results = Analysis {
+    let initial_results = Analysis {
       target: cli.target.clone(),
       ..Default::default()
-    };
-
-    let whois_available = match whois::check_whois_command() {
-      Ok(available) => available,
-      Err(e) => {
-        initial_results.errors.push(format!(
-          "Error checking for 'whois' command: {e}. WHOIS lookups will be skipped."
-        ));
-        false
-      }
     };
 
     let vt_api_key = if cli.vt {
       cli
         .vt_api_key_flag
         .clone()
-        .or_else(|| env::var("VT_API_KEY").ok().filter(|key| !key.is_empty()))
+        .or_else(|| env::var("VT_API_KEY").ok().filter(|k| !k.is_empty()))
     } else {
       None
     };
@@ -52,14 +40,13 @@ impl App {
       cli,
       client,
       results: initial_results,
-      whois_available,
       vt_api_key,
     })
   }
 
   pub async fn run(&mut self) -> Result<()> {
     self.run_geo_lookup().await;
-    self.run_whois_lookup();
+    self.run_whois_lookup().await;
     self.run_dns_lookup();
     self.run_ssl_lookup();
     self.run_vt_lookup();
@@ -76,23 +63,19 @@ impl App {
     }
   }
 
-  fn run_whois_lookup(&mut self) {
+  async fn run_whois_lookup(&mut self) {
     if !self.cli.json && !self.cli.no_whois {
-      println!("Fetching WHOIS info (if applicable)...");
+      println!("Fetching WHOIS info...");
     }
-    match steps::fetch_whois_step(
-      &self.cli.target,
-      &self.cli,
-      self.whois_available,
-    ) {
+    match steps::fetch_whois_step(&self.cli.target, &self.cli, &self.client)
+      .await
+    {
       Ok(Some(info)) => self.results.whois_info = Some(info),
       Ok(None) => {
         let reason = if self.cli.no_whois {
           "skipped by --no-whois flag"
         } else if IpAddr::from_str(&self.cli.target).is_ok() {
           "skipped for IP address target"
-        } else if !self.whois_available {
-          "skipped: 'whois' command unavailable"
         } else {
           "skipped (reason unclear)"
         };
@@ -143,9 +126,7 @@ impl App {
       println!("Checking VirusTotal info (not implemented)...");
     }
     match steps::fetch_vt_step(&self.cli, self.vt_api_key.as_deref()) {
-      Ok(None) => {
-        // Skipped because VT wasn't enabled (`--vt` flag missing)
-      }
+      Ok(None) => { /* skipped – VT flag not enabled */ }
       Err(e) => self.results.errors.push(e),
       Ok(Some(())) => todo!("Handle VT results when implemented"),
     }
