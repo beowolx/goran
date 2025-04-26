@@ -5,8 +5,20 @@ use anyhow::Result;
 use clap::Parser;
 use reqwest::Client;
 use std::env;
-use std::net::IpAddr;
-use std::str::FromStr;
+
+/// Strip URL schemes (`http://`, `https://`) and any path/query, leaving only host or IP.
+fn normalize_target(input: &str) -> String {
+  let mut s = input.trim();
+  if let Some(stripped) = s.strip_prefix("http://") {
+    s = stripped;
+  } else if let Some(stripped) = s.strip_prefix("https://") {
+    s = stripped;
+  }
+  if let Some(idx) = s.find('/') {
+    s = &s[..idx];
+  }
+  s.to_string()
+}
 
 pub struct App {
   cli: Cli,
@@ -17,7 +29,9 @@ pub struct App {
 
 impl App {
   pub fn new() -> Result<Self> {
-    let cli = Cli::parse();
+    let mut cli = Cli::parse();
+    cli.target = normalize_target(&cli.target);
+
     let client = Client::builder()
       .user_agent(format!("miru_cli/{}", env!("CARGO_PKG_VERSION")))
       .build()?;
@@ -72,8 +86,6 @@ impl App {
       Ok(None) => {
         let reason = if self.cli.no_whois {
           "skipped by --no-whois flag"
-        } else if IpAddr::from_str(&self.cli.target).is_ok() {
-          "skipped for IP address target"
         } else {
           "skipped (reason unclear)"
         };
