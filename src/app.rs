@@ -67,9 +67,7 @@ impl App {
     if !self.cli.json && !self.cli.no_whois {
       println!("Fetching WHOIS info...");
     }
-    match steps::fetch_whois_step(&self.cli.target, &self.cli, &self.client)
-      .await
-    {
+    match steps::fetch_whois_step(&self.cli.target, &self.cli).await {
       Ok(Some(info)) => self.results.whois_info = Some(info),
       Ok(None) => {
         let reason = if self.cli.no_whois {

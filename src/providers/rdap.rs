@@ -1,113 +1,60 @@
 use crate::providers::whois::Info;
 
-use anyhow::{Context, Result};
-use reqwest::Client;
-use serde::Deserialize;
+use anyhow::{anyhow, Result};
+use icann_rdap_client::prelude::*;
+use icann_rdap_common::{
+  prelude::Domain,
+  response::{ObjectCommonFields, RdapResponse},
+};
 use serde_json::Value;
+use std::str::FromStr;
 
-#[derive(Debug, Clone, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-struct RdapResponse {
-  #[serde(default)]
-  ldh_name: Option<String>,
-  #[serde(default)]
-  nameservers: Vec<NameServer>,
-  #[serde(default)]
-  status: Vec<String>,
-  #[serde(default)]
-  events: Vec<Event>,
-  #[serde(default)]
-  entities: Vec<Entity>,
-  #[serde(default)]
-  links: Vec<Link>,
-  #[serde(flatten)]
-  _extra: Value,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct NameServer {
-  ldh_name: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Event {
-  event_action: String,
-  event_date: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Entity {
-  #[serde(default)]
-  roles: Vec<String>,
-  handle: Option<String>,
-  #[serde(rename = "vcardArray")]
-  vcard_array: Option<Value>,
-  #[serde(flatten)]
-  _extra: Value,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct Link {
-  rel: String,
-  href: String,
-}
-
-fn entity_by_role<'a>(
-  entities: &'a [Entity],
+fn find_entity_by_role<'a>(
+  entities: &'a [icann_rdap_common::response::Entity],
   role: &str,
-) -> Option<&'a Entity> {
+) -> Option<&'a icann_rdap_common::response::Entity> {
   entities
     .iter()
-    .find(|e| e.roles.iter().any(|r| r.eq_ignore_ascii_case(role)))
+    .find(|e| e.roles().iter().any(|r| r.eq_ignore_ascii_case(role)))
 }
 
-fn vcard_text<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
+fn vcard_text<'a>(v: &'a [Value], key: &str) -> Option<&'a str> {
   v.get(1)?
     .as_array()?
     .iter()
-    .filter_map(|prop| prop.as_array())
-    .find(|prop| {
-      prop
-        .first()
-        .and_then(|v| v.as_str())
-        .map_or(false, |s| s == key)
-        && prop
-          .get(2)
-          .and_then(|v| v.as_str())
-          .map_or(false, |s| s == "text")
+    .filter_map(|p| p.as_array())
+    .find(|p| match (p.first(), p.get(2)) {
+      (Some(k), Some(t)) => {
+        k.as_str() == Some(key) && t.as_str() == Some("text")
+      }
+      _ => false,
     })
-    .and_then(|prop| prop.get(3)?.as_str())
+    .and_then(|p| p.get(3)?.as_str())
 }
 
-fn org_country(v: &Value) -> (Option<String>, Option<String>) {
+fn org_country(vcard: &[Value]) -> (Option<String>, Option<String>) {
   let mut org = None;
   let mut country = None;
 
-  for prop in v.get(1).and_then(Value::as_array).into_iter().flatten() {
-    let p = match prop.as_array() {
-      Some(p) if p.len() >= 4 => p,
+  for p in vcard.get(1).and_then(Value::as_array).into_iter().flatten() {
+    let arr = match p.as_array() {
+      Some(a) if a.len() >= 4 => a,
       _ => continue,
     };
 
-    let key = p[0].as_str().unwrap_or_default();
-    let val = &p[3];
-
-    match key {
-      "org" if org.is_none() => org = val.as_str().map(ToOwned::to_owned),
+    match arr[0].as_str().unwrap_or_default() {
+      "org" if org.is_none() => org = arr[3].as_str().map(str::to_owned),
       "country-name" if country.is_none() => {
-        country = val.as_str().map(ToOwned::to_owned);
+        country = arr[3].as_str().map(str::to_owned);
       }
-      "adr" if country.is_none() => match val {
+      "adr" if country.is_none() => match &arr[3] {
         Value::Array(a) => {
           country = a
             .iter()
             .rev()
             .filter_map(Value::as_str)
             .find(|s| !s.is_empty())
-            .map(ToOwned::to_owned);
+            .map(str::to_owned);
         }
         Value::String(s) => {
           country = s
@@ -115,7 +62,7 @@ fn org_country(v: &Value) -> (Option<String>, Option<String>) {
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .last()
-            .map(ToOwned::to_owned);
+            .map(str::to_owned);
         }
         _ => {}
       },
@@ -130,112 +77,119 @@ fn org_country(v: &Value) -> (Option<String>, Option<String>) {
   (org, country)
 }
 
-/// Fetches RDAP information for a domain.
-///
-/// # Arguments
-///
-/// * `target` - The domain to query
-/// * `client` - The HTTP client to use for requests
-///
-/// # Returns
-///
-/// Domain information parsed from RDAP response
+/// Fetches RDAP information for the given domain or IP address.
 ///
 /// # Errors
 ///
 /// Returns an error if:
-/// * RDAP request to registry fails
-/// * Registry RDAP returns non-2xx status
-/// * Failed to deserialize registry RDAP JSON
-pub async fn fetch_rdap_info(
-  target: impl AsRef<str> + Send,
-  client: &Client,
-) -> Result<Info> {
-  // 1) Registry (rdap.org) query
-  let registry: RdapResponse = client
-    .get(format!("https://rdap.org/domain/{}", target.as_ref()))
-    .send()
-    .await
-    .context("RDAP request to registry failed")?
-    .error_for_status()
-    .context("Registry RDAP returned non-2xx status")?
-    .json()
-    .await
-    .context("Failed to deserialize registry RDAP JSON")?;
+/// - The `target` is not a valid domain name or IP address.
+/// - There is an issue creating the RDAP client.
+/// - The RDAP request fails due to network issues or server errors.
+/// - The RDAP response is not the expected domain information.
+pub async fn fetch_rdap_info(target: &str) -> Result<Info> {
+  // 1) build + send RDAP query via icann-rdap-client
+  let query = QueryType::from_str(target)?;
+  let client = create_client(&ClientConfig::default())?;
+  let store = MemoryBootstrapStore::new();
 
-  // 2) Cheap registrar name
-  let registrar_name = entity_by_role(&registry.entities, "registrar")
+  let resp = rdap_bootstrapped_request(&query, &client, &store, |_| {}).await?;
+
+  // 2) ensure we really got a Domain object
+  let domain: &Domain = match &resp.rdap {
+    RdapResponse::Domain(d) => d,
+    _ => return Err(anyhow!("RDAP response for {target} was not a domain")),
+  };
+
+  // 3) skeleton Info
+  let mut info = Info {
+    domain_name: domain.ldh_name().map(str::to_lowercase),
+    domain_status: domain.status().clone(),
+    ..Info::default()
+  };
+
+  // registrar
+  info.registrar = domain
+    .entities()
+    .iter()
+    .find(|e| {
+      e.roles()
+        .iter()
+        .any(|r| r.eq_ignore_ascii_case("registrar"))
+    })
     .and_then(|e| {
       e.vcard_array
         .as_ref()
         .and_then(|v| vcard_text(v, "fn"))
-        .or(e.handle.as_deref())
+        .or_else(|| e.handle())
     })
-    .map(ToOwned::to_owned);
+    .map(str::to_owned);
 
-  // 3) Do we need a second hop?
-  let registrant_missing = entity_by_role(&registry.entities, "registrant")
-    .and_then(|e| e.vcard_array.as_ref())
-    .and_then(|v| vcard_text(v, "fn"))
-    .map_or(true, |s| s.trim().is_empty());
-
-  let effective = if registrant_missing {
-    let related_url = registry
-      .links
-      .iter()
-      .find(|l| l.rel.eq_ignore_ascii_case("related"))
-      .map(|l| l.href.as_str());
-
-    if let Some(url) = related_url {
-      match client.get(url).send().await {
-        Ok(response) => match response.error_for_status() {
-          Ok(response) => (response.json::<RdapResponse>().await)
-            .map_or(registry, |rdap| rdap),
-          Err(_) => registry,
-        },
-        Err(_) => registry,
-      }
-    } else {
-      registry
-    }
-  } else {
-    registry
-  };
-
-  // 4) Map into neutral Info
-  let mut info = Info {
-    registrar: registrar_name,
-    domain_name: effective.ldh_name.map(|n| n.to_lowercase()),
-    domain_status: effective.status.clone(),
-    ..Info::default()
-  };
-
-  info.name_servers = effective
-    .nameservers
+  // nameservers
+  info.name_servers = domain
+    .nameservers()
     .iter()
-    .map(|ns| ns.ldh_name.to_lowercase())
+    .filter_map(|ns| ns.ldh_name.as_deref())
+    .map(str::to_lowercase)
     .collect();
 
-  for ev in &effective.events {
-    match ev.event_action.as_str() {
+  // events
+  for ev in domain.events() {
+    let action = ev.event_action().unwrap_or_default();
+    let date = ev.event_date().unwrap_or_default();
+    match action {
       "registration" if info.creation_date.is_none() => {
-        info.creation_date = Some(ev.event_date.clone());
+        info.creation_date = Some(date.to_owned());
       }
       "last changed" | "last updated" if info.updated_date.is_none() => {
-        info.updated_date = Some(ev.event_date.clone());
+        info.updated_date = Some(date.to_owned());
       }
       "expiration" if info.expiry_date.is_none() => {
-        info.expiry_date = Some(ev.event_date.clone());
+        info.expiry_date = Some(date.to_owned());
       }
       _ => {}
     }
   }
 
-  if let Some(registrant) = entity_by_role(&effective.entities, "registrant") {
-    if let Some(vcard) = &registrant.vcard_array {
-      let (org, country) = org_country(vcard);
+  // registrant org / country (registry-level)
+  if let Some(ent) = find_entity_by_role(domain.entities(), "registrant") {
+    if let Some(v) = ent.vcard_array.as_ref() {
+      let (org, country) = org_country(v);
       info.registrant_organization = org;
       info.registrant_country = country;
+    }
+  }
+
+  // 4) fallback: follow registrar's "related" link if still blank
+  if info.registrant_organization.is_none() || info.registrant_country.is_none()
+  {
+    if let Some(url) = domain
+      .links()
+      .iter()
+      .find(|l| l.rel().map_or(false, |r| r.eq_ignore_ascii_case("related")))
+      .and_then(|l| l.href())
+    {
+      let alt_resp = rdap_url_request(url, &client).await?;
+      let alt: Domain = match alt_resp.rdap {
+        RdapResponse::Domain(d) => *d,
+        _ => {
+          return Err(anyhow!(
+            "RDAP response for related link {url} was not a domain"
+          ))
+        }
+      };
+
+      if let Some(ent) = find_entity_by_role(alt.entities(), "registrant") {
+        if let Some(v) = ent.vcard_array.as_ref() {
+          let (org, country) = org_country(v);
+
+          if info.registrant_organization.is_none() {
+            info.registrant_organization = org;
+          }
+          if info.registrant_country.is_none() {
+            info.registrant_country = country;
+          }
+        }
+      }
     }
   }
 
