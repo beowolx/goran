@@ -10,6 +10,9 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::process::{Command, Stdio};
+use whois_rust::{WhoIs, WhoIsLookupOptions};
+
+static DEFAULT_SERVERS_JSON: &str = include_str!("servers.json");
 
 // --- Regex for parsing WHOIS output ---
 // These regexes attempt to capture common fields found in WHOIS records.
@@ -246,42 +249,23 @@ pub fn check_whois_command() -> Result<bool> {
 ///   (checked using `is_meaningfully_parsed`). The error message will indicate
 ///   a potential format issue.
 /// - The output contains non-UTF8 characters (though `from_utf8_lossy` mitigates this).
-pub fn fetch_whois_info(target: &str) -> Result<Info> {
-  let output =
-    Command::new("whois")
-      .arg(target)
-      .output()
-      .with_context(|| {
-        format!("Failed to execute whois command for target: '{target}'")
-      })?;
+pub async fn fetch_whois_info(target: &str) -> Result<Info> {
+  let whois = WhoIs::from_string(DEFAULT_SERVERS_JSON)
+    .context("loading embedded servers.json")?;
 
-  if !output.status.success() {
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    bail!(
-      "whois command for '{}' failed with status: {}. Stderr: {}",
-      target,
-      output.status,
-      stderr.trim()
-    );
-  }
+  let mut opts = WhoIsLookupOptions::from_string(target)
+    .context("invalid WHOIS lookup target")?;
+  opts.follow = 5;
 
-  let stdout = String::from_utf8_lossy(&output.stdout);
+  let raw_response = whois
+    .lookup_async(opts)
+    .await
+    .context("WHOIS query failed")?;
 
-  if stdout.trim().is_empty() {
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    if stderr.is_empty() {
-      bail!("whois command for '{target}' returned empty stdout and stderr.");
-    }
-    bail!(
-      "whois command for '{target}' returned empty stdout. Stderr: {stderr}"
-    );
-  }
-
-  let parsed_info = parse_whois_output(&stdout);
+  let parsed_info = parse_whois_output(&raw_response);
 
   if !parsed_info.is_meaningfully_parsed() {
-    bail!("Failed to parse any key fields from WHOIS output for target: '{target}'. Output might be in an unexpected format or lack common fields.");
+    bail!("WHOIS response parsed no useful fields for '{target}'");
   }
-
   Ok(parsed_info)
 }
