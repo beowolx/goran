@@ -8,7 +8,7 @@ readme = "README.md"
 license-file = "LICENSE"
 repository = "https://github.com/beowolx/goran"
 keywords = ["domain", "ip", "analysis", "cli"]
-categories = ["security", "cli", "domain", "ip", "analysis"]
+categories = ["security"]
 
 [profile.release]
 debug = false
