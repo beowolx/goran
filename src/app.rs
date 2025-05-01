@@ -61,7 +61,7 @@ impl App {
   pub async fn run(&mut self) -> Result<()> {
     self.run_geo_lookup().await;
     self.run_whois_lookup().await;
-    self.run_dns_lookup();
+    self.run_dns_lookup().await;
     self.run_ssl_lookup();
     self.run_vt_lookup();
     self.print_results()
@@ -95,11 +95,11 @@ impl App {
     }
   }
 
-  fn run_dns_lookup(&mut self) {
+  async fn run_dns_lookup(&mut self) {
     if !self.cli.json && !self.cli.no_dns {
-      println!("Checking DNS info (not implemented)...");
+      println!("Fetching DNS info...");
     }
-    match steps::fetch_dns_step(&self.cli) {
+    match steps::fetch_dns_step(&self.cli.target, &self.cli).await {
       Ok(None) => {
         if self.cli.no_dns {
           self
@@ -109,7 +109,7 @@ impl App {
         }
       }
       Err(e) => self.results.errors.push(e),
-      Ok(Some(())) => todo!("Handle DNS results when implemented"),
+      Ok(Some(info)) => self.results.dns_info = Some(info),
     }
   }
 

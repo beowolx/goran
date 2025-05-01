@@ -1575,6 +1575,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "hickory-proto",
  "hickory-resolver",
  "icann-rdap-client",
  "icann-rdap-common",

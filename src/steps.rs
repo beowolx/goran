@@ -1,6 +1,6 @@
 use crate::{
   cli::Cli,
-  providers::{geo, rdap, whois},
+  providers::{dns, geo, rdap, whois},
 };
 use anyhow::Result;
 use reqwest::Client;
@@ -61,12 +61,17 @@ pub async fn fetch_whois_step(
   }
 }
 
-pub fn fetch_dns_step(cli: &Cli) -> Result<Option<()>, String> {
+pub async fn fetch_dns_step(
+  target: &str,
+  cli: &Cli,
+) -> Result<Option<dns::Info>, String> {
   if cli.no_dns {
-    Ok(None)
-  } else {
-    Err("DNS lookup feature not yet implemented.".to_string())
+    return Ok(None);
   }
+  dns::lookup(target)
+    .await
+    .map(Some)
+    .map_err(|e| format!("DNS lookup failed: {e}"))
 }
 
 pub fn fetch_ssl_step(cli: &Cli) -> Result<Option<()>, String> {

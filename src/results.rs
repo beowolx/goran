@@ -1,4 +1,4 @@
-use crate::providers::{geo, whois};
+use crate::providers::{dns, geo, whois};
 use anyhow::{Context, Result};
 use serde::Serialize;
 
@@ -8,8 +8,8 @@ pub struct Analysis {
   pub target: String,
   pub geo_info: Option<geo::Info>,
   pub whois_info: Option<whois::Info>,
-  //  placeholders for DNS, SSL, VT results when implemented
-  // pub dns_info: Option<dns::Info>,
+  pub dns_info: Option<dns::Info>,
+  //  placeholders for SSL, VT results when implemented
   // pub ssl_info: Option<ssl::Info>,
   // pub vt_info: Option<vt::Info>,
   pub skipped_steps: Vec<String>,
@@ -98,7 +98,15 @@ pub fn print_human_readable(results: &Analysis) {
   }
 
   println!("\n[+] DNS Information:");
-  println!("    Feature not yet implemented.");
+  match &results.dns_info {
+    Some(info) => {
+      println!("    A: {:?}", info.a);
+      println!("    AAAA: {:?}", info.aaaa);
+      println!("    MX: {:?}", info.mx);
+      println!("    NS: {:?}", info.ns);
+    }
+    None => println!("    Not available (lookup failed or skipped)."),
+  }
 
   println!("\n[+] SSL Certificate Information:");
   println!("    Feature not yet implemented.");
