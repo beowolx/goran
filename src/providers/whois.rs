@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 use whois_rust::{WhoIs, WhoIsLookupOptions, WhoIsServerValue};
 
-static DEFAULT_SERVERS_JSON: &str = include_str!("servers.json");
+static DEFAULT_SERVERS_JSON: &str = include_str!("../config/servers.json");
 
 static RE_DOMAIN_NAME: Lazy<Regex> =
   Lazy::new(|| Regex::new(r"^(?:Domain Name|domain):\s*(.+)$").unwrap());

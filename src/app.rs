@@ -47,6 +47,7 @@ pub struct App {
   client: Client,
   results: Analysis,
   vt_api_key: Option<String>,
+  llm_api_key: Option<String>,
 }
 
 impl App {
@@ -72,11 +73,22 @@ impl App {
       None
     };
 
+    let llm_api_key = if cli.llm_report {
+      cli.llm_api_key_flag.clone().or_else(|| {
+        std::env::var("GEMINI_API_KEY")
+          .ok()
+          .filter(|k| !k.is_empty())
+      })
+    } else {
+      None
+    };
+
     Ok(Self {
       cli,
       client,
       results: initial_results,
       vt_api_key,
+      llm_api_key,
     })
   }
 
@@ -86,7 +98,26 @@ impl App {
     self.run_dns_lookup().await;
     self.run_ssl_lookup().await;
     self.run_vt_lookup().await;
-    self.print_results()
+    if self.cli.llm_report {
+      self.run_llm_report().await
+    } else {
+      self.print_results()
+    }
+  }
+
+  async fn run_llm_report(&self) -> Result<()> {
+    let key = self
+        .llm_api_key
+        .as_deref()
+        .ok_or_else(|| anyhow::anyhow!(
+            "Gemini report requested, but no API key supplied (--llm-api-key or GEMINI_API_KEY)"
+        ))?;
+
+    let report =
+      crate::providers::llm::generate_report(&self.results, key, &self.client)
+        .await?;
+    println!("\n{}\n", report);
+    Ok(())
   }
 
   async fn run_geo_lookup(&mut self) {

@@ -39,6 +39,14 @@ pub struct Cli {
   /// Skip the SSL certificate check step.
   #[arg(long)]
   pub no_ssl: bool,
+
+  /// Ask Gemini to write a full narrative report and a final verdict.
+  #[arg(long)]
+  pub llm_report: bool,
+
+  /// Gemini API key (overrides the `GEMINI_API_KEY` env-var).   
+  #[arg(long = "llm-api-key", requires = "llm_report", value_name = "API_KEY")]
+  pub llm_api_key_flag: Option<String>,
 }
 
 #[cfg(test)]
