@@ -1,6 +1,6 @@
 use crate::{
   cli::Cli,
-  providers::{dns, geo, rdap, whois},
+  providers::{dns, geo, rdap, ssl, whois},
 };
 use anyhow::Result;
 use reqwest::Client;
@@ -74,12 +74,17 @@ pub async fn fetch_dns_step(
     .map_err(|e| format!("DNS lookup failed: {e}"))
 }
 
-pub fn fetch_ssl_step(cli: &Cli) -> Result<Option<()>, String> {
+pub async fn fetch_ssl_step(
+  target: &str,
+  cli: &Cli,
+) -> Result<Option<ssl::Info>, String> {
   if cli.no_ssl {
-    Ok(None)
-  } else {
-    Err("SSL certificate check feature not yet implemented.".to_string())
+    return Ok(None);
   }
+  ssl::fetch_ssl_info(target)
+    .await
+    .map(Some)
+    .map_err(|e| format!("SSL certificate check failed: {e}"))
 }
 
 pub fn fetch_vt_step(

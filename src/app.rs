@@ -62,7 +62,7 @@ impl App {
     self.run_geo_lookup().await;
     self.run_whois_lookup().await;
     self.run_dns_lookup().await;
-    self.run_ssl_lookup();
+    self.run_ssl_lookup().await;
     self.run_vt_lookup();
     self.print_results()
   }
@@ -113,21 +113,21 @@ impl App {
     }
   }
 
-  fn run_ssl_lookup(&mut self) {
+  async fn run_ssl_lookup(&mut self) {
     if !self.cli.json && !self.cli.no_ssl {
-      println!("Checking SSL info (not implemented)...");
+      println!("Fetching SSL certificate info...");
     }
-    match steps::fetch_ssl_step(&self.cli) {
+    match steps::fetch_ssl_step(&self.cli.target, &self.cli).await {
+      Ok(Some(info)) => self.results.ssl_info = Some(info),
       Ok(None) => {
         if self.cli.no_ssl {
           self
             .results
             .skipped_steps
-            .push("SSL (skipped by --no-ssl flag)".to_string());
+            .push("SSL (skipped by --no-ssl flag)".into());
         }
       }
       Err(e) => self.results.errors.push(e),
-      Ok(Some(())) => todo!("Handle SSL results when implemented"),
     }
   }
 

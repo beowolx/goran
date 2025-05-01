@@ -10,5 +10,8 @@ use miru::run;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+  // Install the default crypto provider for rustls
+  let _ = rustls::crypto::ring::default_provider().install_default();
+
   run().await
 }
