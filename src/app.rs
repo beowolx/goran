@@ -105,18 +105,35 @@ impl App {
     }
   }
 
-  async fn run_llm_report(&self) -> Result<()> {
-    let key = self
+  async fn run_llm_report(&mut self) -> Result<()> {
+    let pb = spinner(!self.cli.json, "🤖  Gemini LLM Report");
+
+    let res = async {
+      let key = self
         .llm_api_key
         .as_deref()
         .ok_or_else(|| anyhow::anyhow!(
-            "Gemini report requested, but no API key supplied (--llm-api-key or GEMINI_API_KEY)"
+          "Gemini report requested, but no API key supplied (--llm-api-key or GEMINI_API_KEY)"
         ))?;
 
-    let report =
-      crate::providers::llm::generate_report(&self.results, key, &self.client)
-        .await?;
-    println!("\n{}\n", report);
+      crate::providers::llm::generate_report(&self.results, key, &self.client).await
+    }
+    .await;
+
+    match res {
+      Ok(report) => {
+        if let Some(pb) = pb {
+          pb.finish_with_message(format!("{} Gemini LLM", style("✅").green()));
+        }
+        println!("\n{report}\n");
+      }
+      Err(err) => {
+        if let Some(pb) = pb {
+          pb.finish_with_message(format!("{} Gemini LLM", style("❌").red()));
+        }
+        self.results.errors.push(err.to_string());
+      }
+    }
     Ok(())
   }
 
