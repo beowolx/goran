@@ -2,7 +2,7 @@ use clap::Parser;
 
 #[derive(Parser, Debug, Clone)]
 #[command(
-  name = "miru",
+  name = "goran",
   author = "Luis Cardoso <luis@luiscardoso.dev>",
   version = "0.1.0"
 )]
@@ -63,7 +63,7 @@ mod tests {
   use std::env;
 
   fn make_args(args: &[&str]) -> Vec<String> {
-    std::iter::once("miru".to_string())
+    std::iter::once("goran".to_string())
       .chain(args.iter().map(std::string::ToString::to_string))
       .collect()
   }

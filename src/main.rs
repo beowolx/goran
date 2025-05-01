@@ -6,7 +6,7 @@
 #![allow(clippy::struct_excessive_bools)]
 
 use anyhow::Result;
-use miru::run;
+use goran::run;
 
 #[tokio::main]
 async fn main() -> Result<()> {

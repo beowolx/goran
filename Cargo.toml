@@ -1,12 +1,12 @@
 [package]
-name = "miru"
+name = "goran"
 version = "0.1.0"
 edition = "2021"
 authors = ["Luis Cardoso <luis@luiscardoso.dev>"]
-description = "Miru is a CLI tool for analyzing domains and IP addresses."
+description = "Goran is a CLI tool for analyzing domains and IP addresses."
 readme = "README.md"
 license-file = "LICENSE"
-repository = "https://github.com/beowolx/miru"
+repository = "https://github.com/beowolx/goran"
 keywords = ["domain", "ip", "analysis", "cli"]
 categories = ["security", "cli", "domain", "ip", "analysis"]
 

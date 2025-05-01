@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-const APP_NAME: &str = "miru";
+const APP_NAME: &str = "goran";
 const FILE_NAME: Option<&str> = None;
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
@@ -9,7 +9,7 @@ pub struct UserConfig {
   pub gemini_api_key: Option<String>,
 }
 
-/// Read ~/.config/rs.miru/default-config.toml (or OS equivalent).
+/// Read ~/.config/rs.goran/default-config.toml (or OS equivalent).
 pub fn load() -> UserConfig {
   confy::load(APP_NAME, FILE_NAME).unwrap_or_default()
 }
