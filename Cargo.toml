@@ -2,6 +2,19 @@
 name = "miru"
 version = "0.1.0"
 edition = "2021"
+authors = ["Luis Cardoso <luis@luiscardoso.dev>"]
+description = "Miru is a CLI tool for analyzing domains and IP addresses."
+readme = "README.md"
+license-file = "LICENSE"
+repository = "https://github.com/beowolx/miru"
+keywords = ["domain", "ip", "analysis", "cli"]
+categories = ["security", "cli", "domain", "ip", "analysis"]
+
+[profile.release]
+debug = false
+lto = true
+codegen-units = 1
+panic = "abort"
 
 [dependencies]
 reqwest = { version = "0.12", features = [
