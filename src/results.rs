@@ -1,4 +1,4 @@
-use crate::providers::{dns, geo, whois};
+use crate::providers::{dns, geo, ssl, whois};
 use anyhow::{Context, Result};
 use serde::Serialize;
 
@@ -10,10 +10,31 @@ pub struct Analysis {
   pub whois_info: Option<whois::Info>,
   pub dns_info: Option<dns::Info>,
   //  placeholders for SSL, VT results when implemented
-  // pub ssl_info: Option<ssl::Info>,
+  pub ssl_info: Option<ssl::Info>,
   // pub vt_info: Option<vt::Info>,
   pub skipped_steps: Vec<String>,
   pub errors: Vec<String>,
+}
+fn print_ssl_info(ssl_info: Option<&ssl::Info>) {
+  println!("\n[+] SSL Certificate Information:");
+  match ssl_info {
+    Some(info) => {
+      println!("    Issuer:      {}", info.issuer);
+      println!("    Subject:     {}", info.subject);
+      println!("    Valid From:  {}", info.not_before);
+      println!("    Valid Until: {}", info.not_after);
+      println!(
+        "    DNS Names:   {}",
+        if info.dns_names.is_empty() {
+          "N/A".into()
+        } else {
+          info.dns_names.join(", ")
+        }
+      );
+      println!("    TLS Version: {}", info.tls_version);
+    }
+    None => println!("    Not available (lookup failed or skipped)."),
+  }
 }
 
 fn print_geo_info(geo_info: Option<&geo::Info>) {
@@ -117,9 +138,7 @@ pub fn print_human_readable(results: &Analysis) {
   print_geo_info(results.geo_info.as_ref());
   print_whois_info(results.whois_info.as_ref());
   print_dns_info(results.dns_info.as_ref());
-
-  println!("\n[+] SSL Certificate Information:");
-  println!("    Feature not yet implemented.");
+  print_ssl_info(results.ssl_info.as_ref());
 
   println!("\n[+] VirusTotal Reputation:");
   println!("    Feature not yet implemented.");
