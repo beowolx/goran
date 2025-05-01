@@ -63,7 +63,7 @@ impl App {
     self.run_whois_lookup().await;
     self.run_dns_lookup().await;
     self.run_ssl_lookup().await;
-    self.run_vt_lookup();
+    self.run_vt_lookup().await;
     self.print_results()
   }
 
@@ -131,14 +131,21 @@ impl App {
     }
   }
 
-  fn run_vt_lookup(&mut self) {
+  async fn run_vt_lookup(&mut self) {
     if !self.cli.json && self.cli.vt {
-      println!("Checking VirusTotal info (not implemented)...");
+      println!("Fetching VirusTotal reputation...");
     }
-    match steps::fetch_vt_step(&self.cli, self.vt_api_key.as_deref()) {
-      Ok(None) => { /* skipped – VT flag not enabled */ }
+    match steps::fetch_vt_step(
+      &self.cli.target,
+      &self.cli,
+      &self.client,
+      self.vt_api_key.as_deref(),
+    )
+    .await
+    {
+      Ok(Some(info)) => self.results.vt_info = Some(info),
+      Ok(None) => { /* VT disabled */ }
       Err(e) => self.results.errors.push(e),
-      Ok(Some(())) => todo!("Handle VT results when implemented"),
     }
   }
 

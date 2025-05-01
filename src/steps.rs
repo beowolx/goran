@@ -1,6 +1,6 @@
 use crate::{
   cli::Cli,
-  providers::{dns, geo, rdap, ssl, whois},
+  providers::{dns, geo, rdap, ssl, vt, whois},
 };
 use anyhow::Result;
 use reqwest::Client;
@@ -87,15 +87,22 @@ pub async fn fetch_ssl_step(
     .map_err(|e| format!("SSL certificate check failed: {e}"))
 }
 
-pub fn fetch_vt_step(
+pub async fn fetch_vt_step(
+  target: &str,
   cli: &Cli,
+  client: &reqwest::Client,
   api_key: Option<&str>,
-) -> Result<Option<()>, String> {
+) -> Result<Option<vt::Info>, String> {
   if !cli.vt {
-    Ok(None)
-  } else if api_key.is_none() {
-    Err("VirusTotal check requires an API key (VT_API_KEY env var or --vt-api-key flag), but none was provided.".to_string())
-  } else {
-    Err("VirusTotal check feature not yet implemented.".to_string())
+    return Ok(None);
   }
+
+  let key = api_key.ok_or_else(|| {
+    "VirusTotal check requires an API key (VT_API_KEY env var or --vt-api-key flag), but none was provided.".to_string()
+  })?;
+
+  vt::fetch_vt_info(target, key, client)
+    .await
+    .map(Some)
+    .map_err(|e| format!("VirusTotal lookup failed: {e}"))
 }
