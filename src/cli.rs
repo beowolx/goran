@@ -47,6 +47,14 @@ pub struct Cli {
   /// Gemini API key (overrides the `GEMINI_API_KEY` env-var).   
   #[arg(long = "llm-api-key", requires = "llm_report", value_name = "API_KEY")]
   pub llm_api_key_flag: Option<String>,
+
+  /// Persist any api-key flags that are present into the user config file.
+  #[arg(long)]
+  pub save_keys: bool,
+
+  /// Print the current merged configuration and exit.
+  #[arg(long)]
+  pub config_show: bool,
 }
 
 #[cfg(test)]

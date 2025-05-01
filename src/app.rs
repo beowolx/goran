@@ -1,6 +1,7 @@
 use crate::cli::Cli;
 use crate::results::{self, Analysis};
 use crate::steps;
+use crate::user_config;
 use anyhow::Result;
 use clap::Parser;
 use console::style;
@@ -48,6 +49,7 @@ pub struct App {
   results: Analysis,
   vt_api_key: Option<String>,
   llm_api_key: Option<String>,
+  user_cfg: user_config::UserConfig,
 }
 
 impl App {
@@ -64,24 +66,42 @@ impl App {
       ..Default::default()
     };
 
+    let mut cfg = user_config::load();
     let vt_api_key = if cli.vt {
       cli
         .vt_api_key_flag
         .clone()
         .or_else(|| env::var("VT_API_KEY").ok().filter(|k| !k.is_empty()))
+        .or_else(|| cfg.vt_api_key.clone())
     } else {
       None
     };
 
     let llm_api_key = if cli.llm_report {
-      cli.llm_api_key_flag.clone().or_else(|| {
-        std::env::var("GEMINI_API_KEY")
-          .ok()
-          .filter(|k| !k.is_empty())
-      })
+      cli
+        .llm_api_key_flag
+        .clone()
+        .or_else(|| {
+          std::env::var("GEMINI_API_KEY")
+            .ok()
+            .filter(|k| !k.is_empty())
+        })
+        .or_else(|| cfg.gemini_api_key.clone())
     } else {
       None
     };
+
+    if cli.save_keys {
+      if let Some(k) = &vt_api_key {
+        cfg.vt_api_key = Some(k.clone());
+      }
+      if let Some(k) = &llm_api_key {
+        cfg.gemini_api_key = Some(k.clone());
+      }
+      if let Err(e) = user_config::store(&cfg) {
+        eprintln!("⚠️  Could not save keys: {e}");
+      }
+    }
 
     Ok(Self {
       cli,
@@ -89,10 +109,15 @@ impl App {
       results: initial_results,
       vt_api_key,
       llm_api_key,
+      user_cfg: cfg,
     })
   }
 
   pub async fn run(&mut self) -> Result<()> {
+    if self.cli.config_show {
+      println!("{:#?}", self.user_cfg);
+      return Ok(());
+    }
     self.run_geo_lookup().await;
     self.run_whois_lookup().await;
     self.run_dns_lookup().await;
