@@ -2,17 +2,24 @@ use crate::providers::{dns, geo, ssl, vt, whois};
 use anyhow::{Context, Result};
 use serde::Serialize;
 
-/// Holds the results from the different analysis steps.
 #[derive(Debug, Serialize, Default)]
 pub struct Analysis {
   pub target: String,
+
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub geo_info: Option<geo::Info>,
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub whois_info: Option<whois::Info>,
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub dns_info: Option<dns::Info>,
-  //  placeholders for SSL, VT results when implemented
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub ssl_info: Option<ssl::Info>,
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub vt_info: Option<vt::Info>,
+
+  #[serde(skip_serializing_if = "Vec::is_empty")]
   pub skipped_steps: Vec<String>,
+  #[serde(skip_serializing_if = "Vec::is_empty")]
   pub errors: Vec<String>,
 }
 
