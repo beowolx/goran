@@ -949,7 +949,6 @@ name = "goran"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "base64",
  "chrono",
  "clap",
  "confy",
@@ -968,7 +967,6 @@ dependencies = [
  "serde_json",
  "tokio",
  "tokio-rustls",
- "toml",
  "whois-rust",
  "x509-parser",
 ]
