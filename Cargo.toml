@@ -1,6 +1,6 @@
 [package]
 name = "goran"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2021"
 authors = ["Luis Cardoso <luis@luiscardoso.dev>"]
 description = "Goran is a CLI tool for analyzing domains and IP addresses."
@@ -9,6 +9,12 @@ license-file = "LICENSE"
 repository = "https://github.com/beowolx/goran"
 keywords = ["domain", "ip", "analysis", "cli"]
 categories = ["security"]
+
+[profile.release]
+debug = false
+lto = true
+codegen-units = 1
+panic = "abort"
 
 [dependencies]
 reqwest = { version = "0.12", features = [
