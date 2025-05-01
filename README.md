@@ -1,6 +1,11 @@
 # Goran - Domain & IP Analysis CLI
 
+![image](https://github.com/user-attachments/assets/c5aaee96-f2a6-4636-adeb-230bc183bb0f)
+
+
 **Goran** is a Rust-based command-line tool designed to gather detailed information about domain names and IP addresses. It integrates several data sources such as WHOIS, Geolocation, DNS, SSL certificates, and VirusTotal reputation checks. Goran uniquely utilizes a Gemini to generate concise, readable reports and analyses.
+
+![image](https://github.com/user-attachments/assets/0bab1a47-3edb-44ce-b96a-3125402095fe)
 
 ## Features
 - **Geolocation**: Retrieve geographic and ISP data.
@@ -67,6 +72,8 @@ To use VirusTotal, run:
 goran example.com --vt --vt-api-key <VT_API_KEY>
 ```
 
+![image](https://github.com/user-attachments/assets/1ab4e1d4-5b1b-4c50-828e-20339152ef68)
+
 ### Generating Gemini Analysis
 Goran uses `gemini-2.0-flash` to generate an AI-powered report. The goal is to provide a concise and readable report that is easy to understand.
 
@@ -75,6 +82,9 @@ To generate an AI-powered report, run:
 ```sh
 goran example.com --llm-report --llm-api-key <GEMINI_API_KEY>
 ```
+
+![image](https://github.com/user-attachments/assets/d3084975-0d8b-4ccb-bf44-41dd999f36f7)
+
 
 ### Saving API Keys
 To avoid having to provide your API keys every time you run Goran, you can save them in the config file.
