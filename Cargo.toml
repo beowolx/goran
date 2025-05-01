@@ -1,6 +1,6 @@
 [package]
 name = "goran"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 authors = ["Luis Cardoso <luis@luiscardoso.dev>"]
 description = "Goran is a CLI tool for analyzing domains and IP addresses."

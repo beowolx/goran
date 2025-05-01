@@ -20,7 +20,8 @@ Unlike traditional WHOIS queries, Goran:
 
 ### Using Homebrew (Recommended for macOS)
 ```sh
-brew install beowolx/tap/goran
+brew tap beowolx/goran
+brew install goran
 ```
 
 ### Using Cargo
