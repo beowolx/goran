@@ -1,7 +1,8 @@
 use anyhow::{Context, Result};
 use reqwest::Client;
 use serde::Deserialize;
-use std::fs;
+
+const BASE_PROMPT_TEMPLATE: &str = include_str!("../config/prompt.txt");
 
 #[derive(Deserialize)]
 struct GeminiResponse {
@@ -46,9 +47,7 @@ pub async fn generate_report(
 ) -> Result<String> {
   let summary_json = serde_json::to_value(analysis)?;
 
-  let base_prompt_template = fs::read_to_string("src/config/prompt.txt")
-    .context("Failed to read prompt file")?;
-  let instruction = base_prompt_template
+  let instruction = BASE_PROMPT_TEMPLATE
     .replace("__JSON_DATA_PLACEHOLDER__", &summary_json.to_string());
 
   let url = format!(
