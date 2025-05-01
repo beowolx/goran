@@ -3,6 +3,8 @@ use crate::results::{self, Analysis};
 use crate::steps;
 use anyhow::Result;
 use clap::Parser;
+use console::style;
+use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::Client;
 use std::env;
 
@@ -18,6 +20,26 @@ fn normalize_target(input: &str) -> String {
     s = &s[..idx];
   }
   s.to_string()
+}
+
+fn new_spinner(msg: &str) -> ProgressBar {
+  let pb = ProgressBar::new_spinner();
+  pb.set_style(
+    ProgressStyle::with_template("{spinner} {msg}")
+      .expect("valid spinner template")
+      .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
+  );
+  pb.enable_steady_tick(std::time::Duration::from_millis(80));
+  pb.set_message(msg.to_owned());
+  pb
+}
+
+fn spinner(enabled: bool, label: &str) -> Option<ProgressBar> {
+  if enabled {
+    Some(new_spinner(label))
+  } else {
+    None
+  }
 }
 
 pub struct App {
@@ -68,57 +90,94 @@ impl App {
   }
 
   async fn run_geo_lookup(&mut self) {
-    if !self.cli.json {
-      println!("Fetching Geolocation info...");
-    }
+    let pb = spinner(!self.cli.json, "🌐  Geolocation");
     match steps::fetch_geo_step(&self.cli.target, &self.client).await {
-      Ok(info) => self.results.geo_info = Some(info),
-      Err(e) => self.results.errors.push(e),
+      Ok(info) => {
+        self.results.geo_info = Some(info);
+        if let Some(pb) = pb {
+          pb.finish_with_message(format!(
+            "{} Geolocation",
+            style("✅").green()
+          ));
+        }
+      }
+      Err(e) => {
+        self.results.errors.push(e);
+        if let Some(pb) = pb {
+          pb.finish_with_message(format!("{} Geolocation", style("❌").red()));
+        }
+      }
     }
   }
 
   async fn run_whois_lookup(&mut self) {
-    if !self.cli.json && !self.cli.no_whois {
-      println!("Fetching WHOIS info...");
-    }
+    let pb = spinner(!self.cli.json && !self.cli.no_whois, "📜  WHOIS");
     match steps::fetch_whois_step(&self.cli.target, &self.cli).await {
-      Ok(Some(info)) => self.results.whois_info = Some(info),
-      Ok(None) => {
-        let reason = if self.cli.no_whois {
-          "skipped by --no-whois flag"
-        } else {
-          "skipped (reason unclear)"
-        };
-        self.results.skipped_steps.push(format!("WHOIS ({reason})"));
+      Ok(Some(info)) => {
+        self.results.whois_info = Some(info);
+        if let Some(pb) = pb {
+          pb.finish_with_message(format!("{} WHOIS", style("✅").green()));
+        }
       }
-      Err(e) => self.results.errors.push(e),
+      Ok(None) => {
+        // Either skipped or IP address
+        if self.cli.no_whois {
+          self
+            .results
+            .skipped_steps
+            .push("WHOIS (skipped by --no-whois flag)".into());
+        }
+        if let Some(pb) = pb {
+          pb.finish_with_message(format!("{} WHOIS", style("⚠️").yellow()));
+        }
+      }
+      Err(e) => {
+        self.results.errors.push(e);
+        if let Some(pb) = pb {
+          pb.finish_with_message(format!("{} WHOIS", style("❌").red()));
+        }
+      }
     }
   }
 
   async fn run_dns_lookup(&mut self) {
-    if !self.cli.json && !self.cli.no_dns {
-      println!("Fetching DNS info...");
-    }
+    let pb = spinner(!self.cli.json && !self.cli.no_dns, "🧭  DNS");
     match steps::fetch_dns_step(&self.cli.target, &self.cli).await {
+      Ok(Some(info)) => {
+        self.results.dns_info = Some(info);
+        if let Some(pb) = pb {
+          pb.finish_with_message(format!("{} DNS", style("✅").green()));
+        }
+      }
       Ok(None) => {
         if self.cli.no_dns {
           self
             .results
             .skipped_steps
-            .push("DNS (skipped by --no-dns flag)".to_string());
+            .push("DNS (skipped by --no-dns flag)".into());
+        }
+        if let Some(pb) = pb {
+          pb.finish_with_message(format!("{} DNS", style("⚠️").yellow()));
         }
       }
-      Err(e) => self.results.errors.push(e),
-      Ok(Some(info)) => self.results.dns_info = Some(info),
+      Err(e) => {
+        self.results.errors.push(e);
+        if let Some(pb) = pb {
+          pb.finish_with_message(format!("{} DNS", style("❌").red()));
+        }
+      }
     }
   }
 
   async fn run_ssl_lookup(&mut self) {
-    if !self.cli.json && !self.cli.no_ssl {
-      println!("Fetching SSL certificate info...");
-    }
+    let pb = spinner(!self.cli.json && !self.cli.no_ssl, "🔒  SSL");
     match steps::fetch_ssl_step(&self.cli.target, &self.cli).await {
-      Ok(Some(info)) => self.results.ssl_info = Some(info),
+      Ok(Some(info)) => {
+        self.results.ssl_info = Some(info);
+        if let Some(pb) = pb {
+          pb.finish_with_message(format!("{} SSL", style("✅").green()));
+        }
+      }
       Ok(None) => {
         if self.cli.no_ssl {
           self
@@ -126,15 +185,21 @@ impl App {
             .skipped_steps
             .push("SSL (skipped by --no-ssl flag)".into());
         }
+        if let Some(pb) = pb {
+          pb.finish_with_message(format!("{} SSL", style("⚠️").yellow()));
+        }
       }
-      Err(e) => self.results.errors.push(e),
+      Err(e) => {
+        self.results.errors.push(e);
+        if let Some(pb) = pb {
+          pb.finish_with_message(format!("{} SSL", style("❌").red()));
+        }
+      }
     }
   }
 
   async fn run_vt_lookup(&mut self) {
-    if !self.cli.json && self.cli.vt {
-      println!("Fetching VirusTotal reputation...");
-    }
+    let pb = spinner(!self.cli.json && self.cli.vt, "🕵️  VirusTotal");
     match steps::fetch_vt_step(
       &self.cli.target,
       &self.cli,
@@ -143,9 +208,21 @@ impl App {
     )
     .await
     {
-      Ok(Some(info)) => self.results.vt_info = Some(info),
-      Ok(None) => { /* VT disabled */ }
-      Err(e) => self.results.errors.push(e),
+      Ok(Some(info)) => {
+        self.results.vt_info = Some(info);
+        if let Some(pb) = pb {
+          pb.finish_with_message(format!("{} VirusTotal", style("✅").green()));
+        }
+      }
+      Ok(None) => {
+        // VT disabled, no spinner created if json or flag off
+      }
+      Err(e) => {
+        self.results.errors.push(e);
+        if let Some(pb) = pb {
+          pb.finish_with_message(format!("{} VirusTotal", style("❌").red()));
+        }
+      }
     }
   }
 
