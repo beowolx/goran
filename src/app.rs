@@ -58,7 +58,7 @@ impl App {
     cli.target = normalize_target(&cli.target);
 
     let client = Client::builder()
-      .user_agent(format!("miru_cli/{}", env!("CARGO_PKG_VERSION")))
+      .user_agent(format!("goran_cli/{}", env!("CARGO_PKG_VERSION")))
       .build()?;
 
     let initial_results = Analysis {
