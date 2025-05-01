@@ -16,11 +16,9 @@ pub struct Analysis {
   pub errors: Vec<String>,
 }
 
-pub fn print_human_readable(results: &Analysis) {
-  println!("--- Analysis Results for: {} ---", results.target);
-
+fn print_geo_info(geo_info: Option<&geo::Info>) {
   println!("\n[+] Geolocation:");
-  match &results.geo_info {
+  match geo_info {
     Some(info) => {
       println!("    IP: {}", info.query);
       println!("    Country: {}", info.country.as_deref().unwrap_or("N/A"));
@@ -35,9 +33,11 @@ pub fn print_human_readable(results: &Analysis) {
       println!("    Not available (lookup failed or skipped).");
     }
   }
+}
 
+fn print_whois_info(whois_info: Option<&whois::Info>) {
   println!("\n[+] WHOIS Information:");
-  match &results.whois_info {
+  match whois_info {
     Some(info) => {
       println!(
         "    Domain Name: {}",
@@ -96,9 +96,11 @@ pub fn print_human_readable(results: &Analysis) {
       );
     }
   }
+}
 
+fn print_dns_info(dns_info: Option<&dns::Info>) {
   println!("\n[+] DNS Information:");
-  match &results.dns_info {
+  match dns_info {
     Some(info) => {
       println!("    A: {:?}", info.a);
       println!("    AAAA: {:?}", info.aaaa);
@@ -107,6 +109,14 @@ pub fn print_human_readable(results: &Analysis) {
     }
     None => println!("    Not available (lookup failed or skipped)."),
   }
+}
+
+pub fn print_human_readable(results: &Analysis) {
+  println!("--- Analysis Results for: {} ---", results.target);
+
+  print_geo_info(results.geo_info.as_ref());
+  print_whois_info(results.whois_info.as_ref());
+  print_dns_info(results.dns_info.as_ref());
 
   println!("\n[+] SSL Certificate Information:");
   println!("    Feature not yet implemented.");
