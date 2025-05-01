@@ -156,6 +156,7 @@ impl App {
         if let Some(pb) = pb {
           pb.finish_with_message(format!("{} Gemini LLM", style("❌").red()));
         }
+        eprintln!("❌ Gemini request failed: {err}");
         self.results.errors.push(err.to_string());
       }
     }
