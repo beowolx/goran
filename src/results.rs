@@ -1,4 +1,4 @@
-use crate::providers::{dns, geo, ssl, whois};
+use crate::providers::{dns, geo, ssl, vt, whois};
 use anyhow::{Context, Result};
 use serde::Serialize;
 
@@ -11,10 +11,35 @@ pub struct Analysis {
   pub dns_info: Option<dns::Info>,
   //  placeholders for SSL, VT results when implemented
   pub ssl_info: Option<ssl::Info>,
-  // pub vt_info: Option<vt::Info>,
+  pub vt_info: Option<vt::Info>,
   pub skipped_steps: Vec<String>,
   pub errors: Vec<String>,
 }
+
+fn print_vt_info(vt_info: Option<&vt::Info>) {
+  println!("\n[+] VirusTotal Reputation:");
+  match vt_info {
+    None => println!("    Not available (lookup failed, skipped, or no key)."),
+    Some(info) => {
+      let s = &info.stats;
+      println!(
+        "    Malicious: {}/{} engines  (suspicious: {}, harmless: {}, undetected: {})",
+        s.malicious,
+        s.malicious + s.harmless + s.suspicious + s.undetected,
+        s.suspicious,
+        s.harmless,
+        s.undetected
+      );
+      if let Some(rep) = info.reputation {
+        println!("    Overall VT reputation score: {rep}");
+      }
+      if !info.categories.is_empty() {
+        println!("    Categories: {}", info.categories.join(", "));
+      }
+    }
+  }
+}
+
 fn print_ssl_info(ssl_info: Option<&ssl::Info>) {
   println!("\n[+] SSL Certificate Information:");
   match ssl_info {
@@ -139,9 +164,7 @@ pub fn print_human_readable(results: &Analysis) {
   print_whois_info(results.whois_info.as_ref());
   print_dns_info(results.dns_info.as_ref());
   print_ssl_info(results.ssl_info.as_ref());
-
-  println!("\n[+] VirusTotal Reputation:");
-  println!("    Feature not yet implemented.");
+  print_vt_info(results.vt_info.as_ref());
 
   if !results.skipped_steps.is_empty() {
     println!("\n--- Skipped Steps ---");
