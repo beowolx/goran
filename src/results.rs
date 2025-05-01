@@ -1,5 +1,6 @@
 use crate::providers::{dns, geo, ssl, vt, whois};
 use anyhow::{Context, Result};
+use console::{style, Style};
 use serde::Serialize;
 
 #[derive(Debug, Serialize, Default)]
@@ -23,149 +24,181 @@ pub struct Analysis {
   pub errors: Vec<String>,
 }
 
-fn print_vt_info(vt_info: Option<&vt::Info>) {
-  println!("\n[+] VirusTotal Reputation:");
-  match vt_info {
-    None => println!("    Not available (lookup failed, skipped, or no key)."),
-    Some(info) => {
-      let s = &info.stats;
+/// Helper: coloured keys so the summary is easy to scan.
+fn key(s: &str) -> console::StyledObject<&str> {
+  style(s).bold().cyan()
+}
+
+/// Helper: print a section header ("🌐 Geolocation") once.
+fn header(title: &str, emoji: &str) {
+  println!(
+    "\n{} {}",
+    style(emoji).bold(),
+    Style::new().bold().underlined().apply_to(title)
+  );
+}
+
+fn print_geo_info(geo: Option<&geo::Info>) {
+  header("Geolocation", "🌐");
+  match geo {
+    Some(i) => {
+      println!("  {} {}", key("IP:"), i.query);
       println!(
-        "    Malicious: {}/{} engines  (suspicious: {}, harmless: {}, undetected: {})",
+        "  {} {}",
+        key("Country:"),
+        i.country.as_deref().unwrap_or("N/A")
+      );
+      println!("  {} {}", key("City:"), i.city.as_deref().unwrap_or("N/A"));
+      println!(
+        "  {} {}",
+        key("Region:"),
+        i.region_name.as_deref().unwrap_or("N/A")
+      );
+      println!("  {} {}", key("ISP:"), i.isp.as_deref().unwrap_or("N/A"));
+    }
+    None => println!("  {}", style("Not available").dim()),
+  }
+}
+
+fn print_whois_info(whois: Option<&whois::Info>) {
+  header("WHOIS", "📜");
+  match whois {
+    Some(i) => {
+      println!(
+        "  {} {}",
+        key("Domain Name:"),
+        i.domain_name.as_deref().unwrap_or("N/A")
+      );
+      println!(
+        "  {} {}",
+        key("Registrar:"),
+        i.registrar.as_deref().unwrap_or("N/A")
+      );
+      println!(
+        "  {} {}",
+        key("Created:"),
+        i.creation_date.as_deref().unwrap_or("N/A")
+      );
+      println!(
+        "  {} {}",
+        key("Updated:"),
+        i.updated_date.as_deref().unwrap_or("N/A")
+      );
+      println!(
+        "  {} {}",
+        key("Expires:"),
+        i.expiry_date.as_deref().unwrap_or("N/A")
+      );
+      println!(
+        "  {} {}",
+        key("Status:"),
+        if i.domain_status.is_empty() {
+          "N/A".into()
+        } else {
+          i.domain_status.join(", ")
+        }
+      );
+      println!(
+        "  {} {}",
+        key("Name Servers:"),
+        if i.name_servers.is_empty() {
+          "N/A".into()
+        } else {
+          i.name_servers.join(", ")
+        }
+      );
+      println!(
+        "  {} {}",
+        key("Registrant Org:"),
+        i.registrant_organization
+          .as_deref()
+          .unwrap_or("N/A (or Redacted)")
+      );
+      println!(
+        "  {} {}",
+        key("Registrant Country:"),
+        i.registrant_country
+          .as_deref()
+          .unwrap_or("N/A (or Redacted)")
+      );
+    }
+    None => println!("  {}", style("Not available").dim()),
+  }
+}
+
+fn print_dns_info(dns: Option<&dns::Info>) {
+  header("DNS", "🧭");
+  match dns {
+    Some(i) => {
+      println!("  {} {:?}", key("A:"), i.a);
+      println!("  {} {:?}", key("AAAA:"), i.aaaa);
+      println!("  {} {:?}", key("MX:"), i.mx);
+      println!("  {} {:?}", key("NS:"), i.ns);
+    }
+    None => println!("  {}", style("Not available").dim()),
+  }
+}
+
+fn print_ssl_info(ssl: Option<&ssl::Info>) {
+  header("SSL Certificate", "🔒");
+  match ssl {
+    Some(i) => {
+      println!("  {} {}", key("Issuer:"), i.issuer);
+      println!("  {} {}", key("Subject:"), i.subject);
+      println!("  {} {}", key("Valid From:"), i.not_before);
+      println!("  {} {}", key("Valid Until:"), i.not_after);
+      let dns_names_str = if i.dns_names.is_empty() {
+        "N/A".to_string()
+      } else {
+        i.dns_names.join(", ")
+      };
+      println!("  {} {}", key("DNS Names:"), dns_names_str);
+      println!("  {} {}", key("TLS Version:"), i.tls_version);
+    }
+    None => println!("  {}", style("Not available").dim()),
+  }
+}
+
+fn print_vt_info(vt: Option<&vt::Info>) {
+  header("VirusTotal Reputation", "🕵️");
+  match vt {
+    Some(i) => {
+      let s = &i.stats;
+      let total = s.malicious + s.harmless + s.suspicious + s.undetected;
+      println!(
+        "  {} {}/{} engines {}  (suspicious: {}, harmless: {}, undetected: {})",
+        key("Malicious:"),
         s.malicious,
-        s.malicious + s.harmless + s.suspicious + s.undetected,
+        total,
+        if s.malicious == 0 {
+          style("✅").green()
+        } else {
+          style("⚠️").yellow()
+        },
         s.suspicious,
         s.harmless,
         s.undetected
       );
-      if let Some(rep) = info.reputation {
-        println!("    Overall VT reputation score: {rep}");
+      if let Some(rep) = i.reputation {
+        println!("  {} {}", key("Overall score:"), rep);
       }
-      if !info.categories.is_empty() {
-        println!("    Categories: {}", info.categories.join(", "));
+      if !i.categories.is_empty() {
+        println!("  {} {}", key("Categories:"), i.categories.join(", "));
       }
     }
-  }
-}
-
-fn print_ssl_info(ssl_info: Option<&ssl::Info>) {
-  println!("\n[+] SSL Certificate Information:");
-  match ssl_info {
-    Some(info) => {
-      println!("    Issuer:      {}", info.issuer);
-      println!("    Subject:     {}", info.subject);
-      println!("    Valid From:  {}", info.not_before);
-      println!("    Valid Until: {}", info.not_after);
-      println!(
-        "    DNS Names:   {}",
-        if info.dns_names.is_empty() {
-          "N/A".into()
-        } else {
-          info.dns_names.join(", ")
-        }
-      );
-      println!("    TLS Version: {}", info.tls_version);
-    }
-    None => println!("    Not available (lookup failed or skipped)."),
-  }
-}
-
-fn print_geo_info(geo_info: Option<&geo::Info>) {
-  println!("\n[+] Geolocation:");
-  match geo_info {
-    Some(info) => {
-      println!("    IP: {}", info.query);
-      println!("    Country: {}", info.country.as_deref().unwrap_or("N/A"));
-      println!("    City: {}", info.city.as_deref().unwrap_or("N/A"));
-      println!(
-        "    Region: {}",
-        info.region_name.as_deref().unwrap_or("N/A")
-      );
-      println!("    ISP: {}", info.isp.as_deref().unwrap_or("N/A"));
-    }
-    None => {
-      println!("    Not available (lookup failed or skipped).");
-    }
-  }
-}
-
-fn print_whois_info(whois_info: Option<&whois::Info>) {
-  println!("\n[+] WHOIS Information:");
-  match whois_info {
-    Some(info) => {
-      println!(
-        "    Domain Name: {}",
-        info.domain_name.as_deref().unwrap_or("N/A")
-      );
-      println!(
-        "    Registrar: {}",
-        info.registrar.as_deref().unwrap_or("N/A")
-      );
-      println!(
-        "    Created: {}",
-        info.creation_date.as_deref().unwrap_or("N/A")
-      );
-      println!(
-        "    Updated: {}",
-        info.updated_date.as_deref().unwrap_or("N/A")
-      );
-      println!(
-        "    Expires: {}",
-        info.expiry_date.as_deref().unwrap_or("N/A")
-      );
-      println!(
-        "    Status: {}",
-        if info.domain_status.is_empty() {
-          "N/A".to_string()
-        } else {
-          info.domain_status.join(", ")
-        }
-      );
-      println!(
-        "    Name Servers: {}",
-        if info.name_servers.is_empty() {
-          "N/A".to_string()
-        } else {
-          info.name_servers.join(", ")
-        }
-      );
-      println!(
-        "    Registrant Org: {}",
-        info
-          .registrant_organization
-          .as_deref()
-          .unwrap_or("N/A (or Redacted)")
-      );
-      println!(
-        "    Registrant Country: {}",
-        info
-          .registrant_country
-          .as_deref()
-          .unwrap_or("N/A (or Redacted)")
-      );
-    }
-    None => {
-      println!(
-        "    Not available (lookup failed, skipped, or not applicable)."
-      );
-    }
-  }
-}
-
-fn print_dns_info(dns_info: Option<&dns::Info>) {
-  println!("\n[+] DNS Information:");
-  match dns_info {
-    Some(info) => {
-      println!("    A: {:?}", info.a);
-      println!("    AAAA: {:?}", info.aaaa);
-      println!("    MX: {:?}", info.mx);
-      println!("    NS: {:?}", info.ns);
-    }
-    None => println!("    Not available (lookup failed or skipped)."),
+    None => println!("  {}", style("Not available").dim()),
   }
 }
 
 pub fn print_human_readable(results: &Analysis) {
-  println!("--- Analysis Results for: {} ---", results.target);
+  println!(
+    "{} {}",
+    style("•").magenta(),
+    Style::new()
+      .bold()
+      .magenta()
+      .apply_to(format!("Analysis Results for: {}", &results.target))
+  );
 
   print_geo_info(results.geo_info.as_ref());
   print_whois_info(results.whois_info.as_ref());
@@ -174,22 +207,22 @@ pub fn print_human_readable(results: &Analysis) {
   print_vt_info(results.vt_info.as_ref());
 
   if !results.skipped_steps.is_empty() {
-    println!("\n--- Skipped Steps ---");
-    for step in &results.skipped_steps {
-      println!("  - {step}");
+    header("Skipped Steps", "⚠");
+    for s in &results.skipped_steps {
+      println!("  {}", style(s).yellow());
     }
   }
 
   if !results.errors.is_empty() {
-    println!("\n--- Errors Encountered ---");
-    for error in &results.errors {
-      eprintln!("  [!] {error}");
+    header("Errors Encountered", "❌");
+    for e in &results.errors {
+      eprintln!("  {}", style(e).red().bold());
     }
   }
 }
 
 pub fn print_json(results: &Analysis) -> Result<()> {
   serde_json::to_string_pretty(results)
-    .map(|json_string| println!("{json_string}"))
+    .map(|s| println!("{s}"))
     .context("Failed to serialize results to JSON")
 }

@@ -29,3 +29,5 @@ hickory-resolver = { version = "0.25.1", default-features = false, features = [
 hickory-proto = "0.25"
 chrono = "0.4.41"
 tokio-rustls = "0.26.2"
+indicatif = "0.17.11"
+console = "0.15.11"
