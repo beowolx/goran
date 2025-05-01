@@ -52,7 +52,7 @@ pub async fn generate_report(
     .replace("__JSON_DATA_PLACEHOLDER__", &summary_json.to_string());
 
   let url = format!(
-        "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
     );
   let body = serde_json::json!({
       "contents": [{
