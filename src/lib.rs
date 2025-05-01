@@ -7,14 +7,12 @@
 
 use anyhow::Result;
 
-// Declare library modules
 mod app;
 mod cli;
-pub mod providers; // Make the providers module public
+pub mod providers;
 mod results;
 mod steps;
-// pub mod geo; // Removed
-// pub mod whois; // Removed
+mod user_config;
 
 /// Runs the main application logic.
 ///
@@ -27,9 +25,7 @@ mod steps;
 /// Returns an error if initialization fails (e.g., building the HTTP client) or
 /// if printing the final results in JSON format fails.
 pub async fn run() -> Result<()> {
-  // Initialize the application state (App::new uses cli::Cli internally)
   let mut app = app::App::new()?;
 
-  // Run the analysis (App::run calls steps, uses results internally)
   app.run().await
 }
