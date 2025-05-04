@@ -1,6 +1,6 @@
 [package]
 name = "goran"
-version = "0.1.6"
+version = "0.1.7"
 edition = "2021"
 authors = ["Luis Cardoso <luis@luiscardoso.dev>"]
 description = "Goran is a CLI tool for analyzing domains and IP addresses."
@@ -11,23 +11,20 @@ keywords = ["domain", "ip", "analysis", "cli"]
 categories = ["security"]
 
 [profile.release]
-debug = false
-lto = true
+debug = true
+lto = "thin"
 codegen-units = 1
 panic = "abort"
 strip = "symbols"
 opt-level = "z"
 
 [dependencies]
-reqwest = { version = "0.12", features = [
+# Networking
+reqwest = { version = "0.12", default-features = false, features = [
   "json",
   "rustls-tls",
-], default-features = false }
+] }
 rustls = "0.23.26"
-clap = { version = "4", default-features = false, features = ["derive"] }
-anyhow = "1.0"
-serde_json = "1.0"
-serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = [
   "rt-multi-thread",
   "macros",
@@ -35,8 +32,22 @@ tokio = { version = "1", features = [
   "time",
   "sync",
 ] }
+tokio-rustls = "0.26.2"
+webpki-roots = "0.26.10"
+
+# CLI / UX
+clap = { version = "4", default-features = false, features = ["derive"] }
+indicatif = "0.17.11"
+console = "0.15.11"
+
+# Data & error handling
+anyhow = "1.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "1.0"
+
+# Security / Parsing
 x509-parser = "0.17.0"
-rustls-native-certs = "0.8.1"
 regex = { version = "1.10", default-features = false, features = [
   "perf",
   "std",
@@ -49,18 +60,10 @@ hickory-resolver = { version = "0.25.1", default-features = false, features = [
   "system-config",
 ] }
 
+# Misc / Benches
 regex-automata = { version = "0.4", optional = true }
 hickory-proto = "0.25"
 chrono = "0.4.41"
-tokio-rustls = "0.26.2"
-indicatif = "0.17.11"
-console = "0.15.11"
 confy = "0.6"
 memchr = "2.7"
-thiserror = "1.0"
 futures = "0.3"
-criterion = "0.5.1"
-
-[[bench]]
-name = "whois_parser"
-harness = false
