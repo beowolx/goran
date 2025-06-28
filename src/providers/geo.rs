@@ -47,7 +47,9 @@ pub struct Info {
 /// - API failure response
 ///
 /// # Example
-/// ```
+/// ```ignore
+/// use goran::providers::geo;
+/// let client = reqwest::Client::new();
 /// let geo = geo::fetch_geo_info("8.8.8.8", &client).await?;
 /// ```
 pub async fn fetch_geo_info(
