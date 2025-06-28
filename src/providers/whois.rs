@@ -241,7 +241,7 @@ impl ParseCtx {
 fn ignored_prefix(line: &str) -> bool {
   IGNORE_PREFIXES
     .iter()
-    .any(|p| line.len() >= p.len() && line[..p.len()].eq_ignore_ascii_case(p))
+    .any(|p| line.get(..p.len()).map_or(false, |s| s.eq_ignore_ascii_case(p)))
 }
 
 #[must_use]
