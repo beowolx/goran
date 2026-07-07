@@ -62,7 +62,7 @@ hickory-resolver = { version = "0.25.1", default-features = false, features = [
 
 # Misc / Benches
 regex-automata = { version = "0.4", optional = true }
-hickory-proto = "0.25"
+hickory-proto = "0.26"
 chrono = "0.4.41"
 confy = "0.6"
 memchr = "2.7"
